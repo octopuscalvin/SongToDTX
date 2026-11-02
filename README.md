@@ -14,7 +14,7 @@ Version: see [VERSION](VERSION) and [CHANGELOG.md](CHANGELOG.md).
    two hands and two feet can play.
 3. **Check and edit**: measures the tool is unsure about are explained in plain words. A DTXCreator-style editor
    (BPM lane + 11 drum lanes) lets you move, add and delete notes, and plays the chart with the music.
-4. **Song info**: title, artist, comment, level (000-999, default 680), displayed BPM, jacket, preview clip.
+4. **Song info**: title, artist, comment, level (000-999, default 680), displayed BPM, jacket, preview clip (start bar, 5-17 bars, volume shape you can draw and hear).
 5. **Output**: saves into `DTXFiles\AutoChart\<song> (auto vN)`, older versions move to `Old versions`.
 
 ## Requirements

@@ -2,6 +2,18 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## 0.7.3
+
+- Preview clip by bars: start at any bar or quarter bar (64.25) and run 5-17 bars (8 by default)
+  instead of a fixed 15 s. The Play button now plays exactly that clip (it used to start at the
+  song's beginning).
+- Volume shape for the preview, edited on a picture of the clip with bar lines: drag the dots,
+  double-click to add or remove one. It plays with the shape in the page and is saved the same way;
+  the default rises from 0.8 over the first second and fades out over the last 30% (5 s at most).
+  The choice is kept in autochart.json and shown again when the chart is opened.
+- Hand rule: snare or tom on a 16th, then hi-hat + crash together (130 BPM and up): the hat and its
+  pedal close are dropped, the crash stays.
+
 ## 0.7.2
 
 - Double kick: above 120 BPM, already two kicks a 16th apart are split between the feet (right, left),

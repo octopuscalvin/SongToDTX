@@ -733,6 +733,21 @@ def cymbal_pairs(notes: list[Note]) -> list[Note]:
     return out
 
 
+HAT_CRASH_BPM = 130.0   # from here on a drum a 16th before hi-hat + crash leaves no hand for the hat
+
+
+def hat_under_crash(notes: list[Note], bpms: np.ndarray) -> list[Note]:
+    """Snare (or tom) on a 16th, then hi-hat + crash together: at speed the hand coming off the
+    drum can't reach the hat, so the crash stays and the hat (and its pedal close) goes."""
+    at: dict[Fraction, set[str]] = {}
+    for n in notes:
+        at.setdefault(n.q, set()).add(n.ch)
+    drop = {q for q, chs in at.items()
+            if chs & {"11", "18"} and chs & {"16", "1A"} and at.get(q - 1, set()) & {"12", "14", "15", "17"}
+            and bpms[min(int(q), len(bpms) - 1)] >= HAT_CRASH_BPM}
+    return [n for n in notes if not (n.q in drop and n.ch in ("11", "18", "1B"))]
+
+
 SNARE_ROLL = 4   # 16th snares in a row from here on are a two-handed roll
 
 
@@ -1474,7 +1489,7 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     notes = foot_hat_spacing(notes, starts, T)
     snare_rolls(notes, starts)
     notes = hat_rolls(notes, starts, T, bpms)
-    notes = cymbal_pairs(notes)
+    notes = hat_under_crash(cymbal_pairs(notes), bpms)
     notes = crash_runs(notes)
     notes = roll_into_cymbal(notes, starts)
 
