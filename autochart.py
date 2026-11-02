@@ -30,7 +30,9 @@ from pathlib import Path
 import numpy as np
 
 import config
+import add_mv
 import dtx
+import preview as preview_sound
 import sounds
 import tempo
 from drumkit import KIT, KIT_VOLUME
@@ -663,14 +665,14 @@ def add_video(path: Path, video: Path, out_dir: Path) -> None:
         name = video.stem + ".wmv"
         if not (out_dir / name).exists():
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-an", "-vf",
-                            "scale=1280:-2", "-c:v", "wmv2", "-b:v", "3500k", str(out_dir / name)], check=True)
+                            add_mv.FRAME, "-c:v", "wmv2", "-b:v", "3500k", str(out_dir / name)], check=True)
     elif video.resolve() != (out_dir / name).resolve():
         shutil.copy2(video, out_dir / name)
-    lines = path.read_text(encoding="shift_jis").splitlines()
+    lines = path.read_text(encoding="cp932").splitlines()
     bgm = next(l for l in lines if re.match(r"#\d{3}01:", l))
     lines.insert(next(i for i, l in enumerate(lines) if l.startswith("#BGMWAV")) + 1, f"#AVI01: {name}")
     lines.append(bgm[:4] + "54" + bgm[6:])
-    path.write_text(CRLF.join(lines) + CRLF, encoding="shift_jis", errors="replace")
+    path.write_bytes((CRLF.join(lines) + CRLF).encode("cp932", errors="replace"))
     print(f"      BGA: {name} starts with the BGM")
 
 
@@ -748,6 +750,24 @@ def hat_under_crash(notes: list[Note], bpms: np.ndarray) -> list[Note]:
     return [n for n in notes if not (n.q in drop and n.ch in ("11", "18", "1B"))]
 
 
+def ride_on_cymbal(notes: list[Note]) -> list[Note]:
+    """Game-chart style (as official GITADORA / drummania charts write it): no ride lane - the ride
+    is played on the right cymbal (CY); a crash on the same 16th moves to the left cymbal (LC)."""
+    ride = {n.q for n in notes if n.ch == "19"}
+    out = []
+    for n in notes:
+        if n.ch == "19":
+            n = Note(n.q, "16", n.t, n.wav)
+        elif n.ch == "16" and n.q in ride:
+            n = Note(n.q, "1A", n.t, n.wav)
+        out.append(n)
+    seen, uniq = set(), []
+    for n in out:
+        if (n.q, n.ch) not in seen:
+            seen.add((n.q, n.ch)); uniq.append(n)
+    return uniq
+
+
 SNARE_ROLL = 4   # 16th snares in a row from here on are a two-handed roll
 
 
@@ -798,14 +818,13 @@ def snare_rolls(notes: list[Note], bar_starts: list[int]) -> list[str]:
 
 
 HAT_ROLL = 5          # 16th hi-hats in a row from here on are played with both hands ...
-HAT_ROLL_BPM = 130.0  # ... at this tempo and up (at 115 one hand rides the 16ths;
-                      # at 132 the hands alternate)
+HAT_ROLL_BPM = 0.0    # ... at any tempo: the snare in the run stays and the hat under it goes
 ROLL_BAR_SNARES = 8   # a bar with this many snares, some a 16th apart, is a snare roll bar
 
 
 def hat_rolls(notes: list[Note], bar_starts: list[int], T: np.ndarray, bpms: np.ndarray) -> list[Note]:
     """Rules:
-    * 5+ hi-hats in a row on 16ths (140 BPM and up) are both hands rolling the hat: where a snare lands in the run
+    * 5+ hi-hats in a row on 16ths are both hands rolling the hat: where a snare lands in the run
       the snare stays and the hi-hat goes (bar 45).
     * A bar with 8+ snares, some a 16th apart, has both hands on the snare: no hand hi-hat; the
       left foot keeps the time with a pedal chip on every beat (bar 46)."""
@@ -1035,6 +1054,40 @@ def close_open_hats(notes: list[Note]) -> list[Note]:
     return out
 
 
+FOOT_PATTERNS = {"8ths": range(0, 16, 2), "off 8ths": range(2, 16, 4), "2 and 4": (4, 12), "beats": range(0, 16, 4)}
+FOOT_FIT = 0.6   # F1 of the heard foot chicks against a steady pattern before the bar gets the whole pattern
+
+
+def steady_foot_hats(notes: list[Note], bar_starts: list[int]) -> list[Note]:
+    """Under a ride (hands on the cymbals, no hand hi-hat) the left foot keeps a steady hi-hat:
+    every 8th, the off-8ths, 2 and 4, or the beats. The stems only catch some of those chicks, so a
+    4/4 bar whose heard foot chips fit one of these patterns gets the whole pattern."""
+    by_bar: dict[int, list[Note]] = {}
+    for n in notes:
+        by_bar.setdefault(bisect.bisect_right(bar_starts, int(n.q)) - 1, []).append(n)
+    out, added = list(notes), 0
+    for b, ns in by_bar.items():
+        if b < 0 or b + 1 >= len(bar_starts) or bar_starts[b + 1] - bar_starts[b] != 16:
+            continue
+        s0 = bar_starts[b]
+        if any(n.ch in ("11", "18") for n in ns) or sum(n.ch in ("16", "19") for n in ns) < 4:
+            continue
+        heard = {int(n.q) - s0 for n in ns if n.ch == "1B" and n.q == int(n.q)}
+        if len(heard) < 2:
+            continue
+        f1 = {k: 2 * len(heard & set(v)) / (len(heard) + len(v)) for k, v in FOOT_PATTERNS.items()}
+        best = max(f1, key=f1.get)
+        if f1[best] < FOOT_FIT:
+            continue
+        t_of = {int(n.q): n.t for n in ns}
+        for k in FOOT_PATTERNS[best]:
+            if k not in heard:
+                out.append(Note(Fraction(s0 + k), "1B", t_of.get(s0 + k, 0.0)))
+                added += 1
+    print(f"      steady foot hi-hat: {added} pedal chips filled in under the ride")
+    return sorted(out, key=lambda n: (n.q, n.ch))
+
+
 RIDE_OVER_HAT = 0.0   # dB: cymbal stem over hi-hat stem at a "hi-hat" hit -> it was the ride
 CHICK_RISE = 8.0   # dB: a foot chick on the LarsNet hi-hat stem (6-16 kHz) over the moment before
 
@@ -1209,6 +1262,56 @@ def find_tom_fills(notes: list[Note], drums: Path, bar_starts: list[int],
 
 
 # ---- 6. chart layout + writing ------------------------------------------------
+def grid_from_chart(ref_path: Path, hits: list[tuple[float, int]], duration: float,
+                    max_bpm: float) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    """--grid-from: tempo and bar lines taken from another chart of the same song (an official
+    chart, or one whose bar lines the user fixed by hand), lined up with this audio by its kick and
+    snare notes. A tempo over max_bpm (a game chart's 272 for 136) is counted at half, so its
+    bars keep 16ths of the felt tempo. Past the reference's end the last bar repeats."""
+    ref = dtx.read_dtx(ref_path)
+    off = ref.bgm_offset()
+    ev = ref._tempo_events()
+
+    def bpm_at(m: int, p: Fraction) -> float:
+        b = ref.base_bpm
+        for em, ep, eb in ev:
+            if (em, ep) <= (m, p):
+                b = eb
+        return b
+    mine = np.array(sorted(t for t, p in hits if ADTOF_TO_CH.get(p) in ("12", "13")))
+    theirs = np.array(sorted(ref.time_of(c.measure, c.pos) - off for c in ref.chips
+                             if c.channel.upper() in ("12", "13", "1C")))
+    d = (mine[None, ::2] - theirs[::2, None]).ravel()
+    d = d[np.abs(d) < 60]
+    h, e = np.histogram(d, bins=np.arange(-60, 60, 0.01))
+    shift = float(np.median(d[np.abs(d - (e[h.argmax()] + 0.005)) < 0.03]))
+    T, bpms, starts = [], [], []
+    m, last = 0, max(c.measure for c in ref.chips)
+    while True:
+        L = ref.measure_len.get(m, 1.0) if m <= last else ref.measure_len.get(last, 1.0)
+        mm = min(m, last)
+        b = bpm_at(mm, Fraction(0))
+        half = b > max_bpm
+        n = int(round(L * 16 / (2 if half else 1)))
+        t0 = ref.time_of(m, Fraction(0)) - off + shift if m <= last else T[-1] + 15 / bpms[-1]
+        if m > last:
+            pts = [t0 + k * 15 / (b / (2 if half else 1)) for k in range(n)]
+        else:
+            pts = [ref.time_of(m, Fraction(k, n)) - off + shift for k in range(n)]
+        if pts[0] >= -0.05:
+            starts.append(len(T))
+        for k, t in enumerate(pts):
+            T.append(t)
+            bk = bpm_at(mm, Fraction(k, n)) if m <= last else b
+            bpms.append(round(bk / 2, 3) if bk > max_bpm else bk)
+        if pts[-1] > duration + 1:
+            starts.append(len(T))
+            break
+        m += 1
+    print(f"      grid from {ref_path.name}: this audio = reference + {shift:+.3f} s, {len(starts) - 1} bars")
+    return np.array(T), np.array(bpms), starts
+
+
 def layout(notes: list[Note], T: np.ndarray, bpms: np.ndarray, bar_starts: list[int],
            note_offset: float = TARGET_LAG / 2, bar: int = 16):
     """Turn tatum positions into DTX measures. Measure 000 is an empty 4/4 lead-in at the first
@@ -1331,7 +1434,7 @@ def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_che
         notes = crash_hints(notes, starts, T, crash)
     notes = verify_kick_runs(notes, drums, bpms, starts, tom_log, kick_check)
     if ride_foot:
-        notes = ride_foot_hats(notes, drums, T, starts)   # before the hand limit: those hats are feet
+        notes = steady_foot_hats(ride_foot_hats(notes, drums, T, starts), starts)   # before the hand limit: those hats are feet
     n_before = sum(n.ch != "1B" for n in notes)
     notes = limit_hands(notes)
     notes = double_kick(notes, starts, bpms)
@@ -1357,7 +1460,8 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
           preimage: Path | None = None, dlevel: int = 50, ride_foot: bool = False,
           merge_bars: int = 0, groove: Path | None = None, swing: int = 0,
           tempo_from: str = "", crash: str = "", snare24: bool = False,
-          score: Path | None = None, score_first: int = 2, video: Path | None = None) -> Path:
+          score: Path | None = None, score_first: int = 2, video: Path | None = None,
+          fixed_bpm: float = 0.0, game_style: bool = False, grid_from: Path | None = None) -> Path:
     import soundfile as sf
     out_dir.mkdir(parents=True, exist_ok=True)
     print("[1/5] separating stems ...")
@@ -1371,6 +1475,9 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     sections = tempo.find_sections(onsets, strength, ref)
     if not tempo_at:
         sections = tempo.merge_close_sections(sections, onsets, strength)
+    if fixed_bpm:   # a known tempo (e.g. a game song's published BPM): one section, phase fitted
+        sections = [tempo.Section(sections[0].start, sections[-1].end, fixed_bpm, ramp=False)]
+        tempo.fit_section(sections[0], onsets, strength, margin=0.0, search=1.0)
     for tok in filter(None, tempo_from.split(";")):
         t0, b = (float(x) for x in tok.split("="))
         sections = tempo.force_section(sections, t0, b, onsets, strength)
@@ -1478,6 +1585,8 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
         starts = tempo.apply_bar_hints(starts, hints, len(T) - 1)
     if merge_bars:
         starts = tempo.merge_bars(starts, merge_bars)
+    if grid_from:
+        T, bpms, starts = grid_from_chart(Path(grid_from), hits, duration, max_bpm)
     lens = np.diff(starts)
     odd = {int(L): int((lens == L).sum()) for L in np.unique(lens) if L != 16}
     print(f"      {len(lens)} bars; non-4/4 bars (in 16ths): {odd or 'none'}")
@@ -1492,6 +1601,8 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     notes = hat_under_crash(cymbal_pairs(notes), bpms)
     notes = crash_runs(notes)
     notes = roll_into_cymbal(notes, starts)
+    if game_style:
+        notes = ride_on_cymbal(notes)
 
     late = tom_log + busy_stream_snares(notes, starts, bpms, fixed | parse_measures(backbeat))
     bar, fast_bar = 16, (lambda m: m)
@@ -1550,6 +1661,12 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
         print(f"      notes land {d * 1000:+.1f} ms after the hits -> BGM shift {note_offset * 1000:+.1f} ms")
         chips, measure_len, bpm_defs, base_bpm = layout(notes, T, bpms, starts, note_offset, bar)
         dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes)
+    prev = None
+    if not preview:   # first build: a clip of the original song (never the drumless BGM)
+        prev = preview_sound.write(path, audio)
+        headers["PREVIEW"] = "preview.ogg"
+        dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes)
+        print(f"      preview: measure {prev['bar']:03d}, {prev['bars']} bars of the original song")
     if video:
         add_video(path, Path(video), out_dir)
     # (a bar-phase check from the beat tracker was tried: too many false alarms on metal riffs)
@@ -1566,6 +1683,8 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
             print("        - " + c)
     info = {"sections": [s.__dict__ for s in sections], "bars": len(lens), "odd_bars": odd,
             "checks": checks}
+    if prev:
+        info["preview"] = prev
     (out_dir / "autochart.json").write_text(json.dumps(info, indent=2, default=float))
 
     # self-check: how far each charted note lands from the hit it came from
@@ -1619,6 +1738,12 @@ if __name__ == "__main__":
                     help="JSON lane -> 16 slots ('x'/'.'): bars close to it are charted as exactly this groove")
     ap.add_argument("--swing-hats", type=int, default=0, choices=[16, 24],
                     help="8th hats + stem-confirmed off-8th hats; late hat on the 16th or the 16th-triplet")
+    ap.add_argument("--grid-from", type=Path, default=None,
+                    help="take tempo and bar lines from another chart of this song (official or hand-fixed)")
+    ap.add_argument("--game-style", action="store_true",
+                    help="write the ride on the right cymbal lane, as official game charts do")
+    ap.add_argument("--bpm", type=float, default=0.0,
+                    help="the song's known tempo, kept for the whole song (bar lines and odd bars still found)")
     ap.add_argument("--tempo-from", default="",
                     help='new tempo section from this audio second, e.g. "58.22=170" (fit nearby)')
     ap.add_argument("--crash", default="",
@@ -1637,4 +1762,4 @@ if __name__ == "__main__":
           a.bars, a.tempo_at, a.max_bpm, a.backbeat, a.half, a.kick_check, a.beat_grid,
           a.kit, a.snare_match, a.volume, a.dynamics, a.preview, a.preimage, a.dlevel, a.ride_foot,
           a.merge, a.groove, a.swing_hats, a.tempo_from, a.crash, a.snare_24,
-          a.score, a.score_first, a.video)
+          a.score, a.score_first, a.video, a.bpm, a.game_style, a.grid_from)

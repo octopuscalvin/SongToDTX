@@ -18,6 +18,10 @@ import dtx
 SR, HOP = 22050, 55                     # 2.5 ms onset frames
 WIN = 10                                # seconds per matching window
 NAME = "bga_mv.wmv"
+# DTXMania places a clip by its pixel size: anything but 1280x720 with square pixels lands off frame,
+# so other shapes are fitted inside it with black bars
+FRAME = ("scale=1280:720:force_original_aspect_ratio=decrease,"
+         "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black,setsar=1")
 CRLF = chr(13) + chr(10)
 
 
@@ -47,9 +51,14 @@ def onsets(f: Path) -> np.ndarray:
     return o - o.mean()
 
 
-def windows(video: np.ndarray, bgm: np.ndarray) -> list[tuple[float, float, np.ndarray, int]]:
-    """(BGM second, video second - BGM second of the best match, correlation, window start) for every
-    10 s window of the BGM that has a clear match anywhere in the video; quiet windows are left out."""
+CLEAR, FAIR = 12, 6      # correlation peak over its mean: a sure match / good enough to measure drift
+DRIFT_MIN = 0.02         # seconds over the song: a slower or faster video is stretched from here on
+
+
+def windows(video: np.ndarray, bgm: np.ndarray) -> list[tuple[float, float, np.ndarray, int, float]]:
+    """(BGM second, video second - BGM second of the best match, correlation, window start, peak
+    over mean) for every 10 s window of the BGM that matches somewhere in the video; quiet windows
+    are left out."""
     from scipy.signal import fftconvolve
     dt, w, out = HOP / SR, int(WIN / HOP * SR), []
     for i0 in range(0, len(bgm) - w, w):
@@ -58,17 +67,19 @@ def windows(video: np.ndarray, bgm: np.ndarray) -> list[tuple[float, float, np.n
             continue
         c = fftconvolve(video, seg[::-1], "valid")
         k = int(np.argmax(c))
-        if c[k] > 12 * (np.abs(c).mean() + 1e-9):
-            out.append((i0 * dt, (k - i0) * dt, c, i0))
+        ratio = c[k] / (np.abs(c).mean() + 1e-9)
+        if ratio > FAIR:
+            out.append((i0 * dt, (k - i0) * dt, c, i0, ratio))
     return out
 
 
-def out_of_sync(win, d: float) -> list[float]:
-    """BGM seconds whose window matches much worse at offset d than at its best spot. A repeated
-    chorus matches equally well in two places, so only a clearly weaker match counts."""
-    k, m = round(d * SR / HOP), int(0.05 * SR / HOP)
+def out_of_sync(win, d: float, s: float = 0.0) -> list[float]:
+    """BGM seconds whose window matches much worse at offset d (+ drift s per second) than at its
+    best spot. A repeated chorus matches equally well in two places, so only a clearly weaker match counts."""
+    m = int(0.05 * SR / HOP)
     bad = []
-    for t, _, c, i0 in win:
+    for t, _, c, i0, _ in win:
+        k = round((d + s * t) * SR / HOP)
         near = c[max(0, i0 + k - m):max(0, i0 + k + m + 1)]
         if len(near) == 0 or near.max() < 0.6 * c.max():
             bad.append(t)
@@ -77,7 +88,7 @@ def out_of_sync(win, d: float) -> list[float]:
 
 def bgm_of(path: Path) -> tuple[Path, str, int, int, int]:
     """BGM file, and where its first chip sits: (file, line, measure, slot, slots in the line)."""
-    lines = path.read_text(encoding="shift_jis", errors="replace").splitlines()
+    lines = path.read_text(encoding="cp932", errors="replace").splitlines()
     first = None
     for l in lines:
         m = re.match(r"#(\d{3})01:\s*(\S+)", l)
@@ -100,12 +111,12 @@ def bgm_of(path: Path) -> tuple[Path, str, int, int, int]:
 
 def attach(path: Path, name: str, measure: int, slot: int, slots: int) -> None:
     """#AVI01 after #BGMWAV and a channel 54 chip in the BGM chip's slot; replaces earlier BGA."""
-    lines = [l for l in path.read_text(encoding="shift_jis", errors="replace").splitlines()
+    lines = [l for l in path.read_text(encoding="cp932", errors="replace").splitlines()
              if not re.match(r"#AVI[0-9A-Z]{2}[:\s]", l, re.I) and not re.match(r"#\d{3}54:", l)]
     at = next((i + 1 for i, l in enumerate(lines) if l.upper().startswith("#BGMWAV")), 0)
     lines.insert(at, f"#AVI01: {name}")
     lines.append(f"#{measure:03d}54: " + "".join("01" if s == slot else "00" for s in range(slots)))
-    path.write_text(CRLF.join(lines) + CRLF, encoding="shift_jis", errors="replace")
+    path.write_bytes((CRLF.join(lines) + CRLF).encode("cp932", errors="replace"))
 
 
 def measure_at(ch: dtx.Chart, t: float) -> int:
@@ -135,10 +146,22 @@ def main():
     win = windows(onsets(mono(video, a.work / "mv_m.wav")), onsets(mono(bgm, a.work / "bgm_m.wav")))
     if len(win) < 3:
         raise SystemExit("The video's sound doesn't match this chart's music. Is it the same song?")
-    d = float(np.median([w[1] for w in win]))
+    d = float(np.median([w[1] for w in win if w[4] > CLEAR] or [w[1] for w in win]))
+    # a video from another master can run a little fast or slow: fit offset = d0 + s * t
+    inl = [w for w in win if abs(w[1] - d) < 0.1]
+    s = 0.0
+    if len(inl) >= 6:
+        s, d0 = np.polyfit([w[0] for w in inl], [w[1] for w in inl], 1)
+        if abs(s * inl[-1][0]) > DRIFT_MIN:
+            d = float(d0)
+            print(f"      the video runs {abs(s) * 100:.3f}% {'slow' if s > 0 else 'fast'} "
+                  f"({s * inl[-1][0] * 1000:+.0f} ms by the end): stretched to fit")
+        else:
+            s = 0.0
+    win = [w for w in win if w[4] > CLEAR] or win
     ch = dtx.read_dtx(path)
     start = ch.bgm_offset()
-    off = sorted({measure_at(ch, start + t) for t in out_of_sync(win, d)})
+    off = sorted({measure_at(ch, start + t) for t in out_of_sync(win, d, s)})
     print(f"      {len(win)} parts of the song matched; video = BGM {d:+.3f} s")
     if off:
         spans = [[off[0], off[0]]]
@@ -152,7 +175,8 @@ def main():
               + " (extra scene, cut or other mix): the picture is out of sync there")
 
     print("[3/3] cutting and converting the video ...", flush=True)
-    vf = "scale=1280:-2" if d >= 0 else f"tpad=start_duration={-d:.3f}:color=black,scale=1280:-2"
+    vf = ("" if d >= 0 else f"tpad=start_duration={-d:.3f}:color=black,") + \
+        (f"setpts=PTS/{1 + s:.7f}," if s else "") + FRAME
     cut = ["-ss", f"{d:.3f}"] if d > 0 else []
     tmp = a.work / NAME
     subprocess.run(["ffmpeg", "-v", "error", "-y", *cut, "-i", str(video), "-an", "-vf", vf,

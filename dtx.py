@@ -117,7 +117,7 @@ def read_dtx(path: str | Path) -> Chart:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        text = raw.decode("shift_jis", errors="replace")
+        text = raw.decode("cp932", errors="replace")
     chart = Chart()
     for line in text.splitlines():
         line = line.strip()
@@ -170,7 +170,7 @@ def sjis_safe(text: str) -> str:
     out = []
     for c in text:
         try:
-            c.encode("shift_jis")
+            c.encode("cp932")
         except UnicodeEncodeError:
             if c == "Å":
                 c = "Å"
@@ -186,7 +186,7 @@ def write_dtx(path: str | Path, headers: dict[str, str], wavs: dict[str, str],
     lines = ["; Created by Song to DTX", ""]
     for k, v in headers.items():
         v = sjis_safe(v)
-        lost = [c for c in v if c.encode("shift_jis", "replace") == b"?" and c != "?"]
+        lost = [c for c in v if c.encode("cp932", "replace") == b"?" and c != "?"]
         if lost:  # DTXMania reads Shift-JIS: e.g. 你 is not in it
             print(f"      WARNING: #{k} has characters Shift-JIS can't hold: {ascii(''.join(lost))}")
         lines.append(f"#{k}: {v}")
@@ -213,4 +213,5 @@ def write_dtx(path: str | Path, headers: dict[str, str], wavs: dict[str, str],
         groups.setdefault((c.measure, c.channel), []).append((c.pos, c.value))
     for (m, ch), items in sorted(groups.items()):
         lines.append(f"#{m:03d}{ch}: {_encode_measure(items)}")
-    Path(path).write_text("\r\n".join(lines) + "\r\n", encoding="shift_jis", errors="replace")
+    # bytes: text mode on Windows would turn each \r\n into \r\r\n
+    Path(path).write_bytes(("\r\n".join(lines) + "\r\n").encode("cp932", errors="replace"))

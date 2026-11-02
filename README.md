@@ -53,6 +53,10 @@ fills missing ones with simple synthesized sounds; replace any of them with samp
 .venv\Scripts\python add_mv.py <chart folder> <music video URL|file> <work folder>
 ```
 
+Useful hints when you know more than the audio tells: `--bpm 213` (the song's published tempo),
+`--grid-from other.dtx` (take tempo and bar lines from another chart of the same song),
+`--game-style` (ride written on the cymbal lane, as game charts do), `--ride-foot` (left-foot hi-hat under a ride).
+
 ## Licenses and credits
 
 Song to DTX itself is under the [MIT License](LICENSE). The models it uses have their own licenses; they are

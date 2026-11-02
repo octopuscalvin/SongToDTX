@@ -17,6 +17,7 @@ HERE = APP.parent                                  # the Song to DTX folder
 sys.path.insert(0, str(HERE))
 import config                                      # noqa: E402
 import dtx                                         # noqa: E402
+import preview                                     # noqa: E402
 from drumkit import KIT                            # noqa: E402
 
 VERSION = (HERE / "VERSION").read_text().strip()
@@ -237,7 +238,7 @@ def save_chart(job: dict, chips: list) -> int:
     p = job["out"] / "mstr.dtx"
     if not (job["out"] / AUTO).exists():
         shutil.copy2(p, job["out"] / AUTO)
-    lines = [l for l in p.read_bytes().decode("shift_jis", errors="replace").splitlines()
+    lines = [l for l in p.read_bytes().decode("cp932", errors="replace").splitlines()
              if not ((m := dtx.LINE_RE.match(l)) and m[2].upper() in dtx.DRUM_CHANNELS)]
     groups: dict[tuple[int, str], dict] = {}
     for m, n, dd, lane, wav in chips:
@@ -248,7 +249,7 @@ def save_chart(job: dict, chips: list) -> int:
         lines.pop()
     for (m, lane), items in sorted(groups.items()):
         lines.append(f"#{m:03d}{lane}: {dtx._encode_measure(sorted(items.items()))}")
-    p.write_bytes((CRLF.join(lines) + CRLF).encode("shift_jis", errors="replace"))
+    p.write_bytes((CRLF.join(lines) + CRLF).encode("cp932", errors="replace"))
     job["info"] = chart_info(job)
     return sum(len(v) for v in groups.values())
 
@@ -319,54 +320,21 @@ def audio_seconds(f: Path) -> float:
 
 
 # ---- preview sound ------------------------------------------------------------------------------
-PREVIEW_BARS = (5, 17, 8)   # shortest, longest, default clip in bars
-
-
-def bar_seconds(ch: dtx.Chart, bar: float) -> float:
-    """BGM seconds at a bar number with a fraction (64.25 = a quarter into measure 064)."""
-    m = int(bar)
-    return ch.time_of(m, Fraction(bar - m).limit_denominator(64)) - ch.bgm_offset()
-
-
-def preview_span(job: dict, bar: float, bars: float) -> tuple[float, float]:
-    ch = dtx.read_dtx(job["out"] / "mstr.dtx")
-    bars = min(max(bars, PREVIEW_BARS[0]), PREVIEW_BARS[1])
-    a = max(0.0, bar_seconds(ch, bar))
-    return a, bar_seconds(ch, bar + bars) - a
-
-
 def cut_clip(job: dict, bar: float, bars: float, out: Path) -> float:
     """The preview stretch of the BGM, unshaped, as a WAV; returns its length."""
-    a, n = preview_span(job, bar, bars)
-    ffmpeg("-ss", f"{a:.3f}", "-t", f"{n:.3f}", "-i", job["out"] / job["info"]["bgm_file"], "-ac", "2", "-ar", "44100", out)
+    a, n = preview.span(dtx.read_dtx(job["out"] / "mstr.dtx"), bar, bars)
+    preview.cut(job["out"] / job["info"]["bgm_file"], a, n, out)
     return n
-
-
-def shape_gain(shape: list, t):
-    """Volume at clip seconds t: straight lines between the shape's (seconds, volume) points."""
-    import numpy as np
-    pts = sorted((float(x), float(g)) for x, g in shape) or [(0.0, 1.0)]
-    return np.interp(t, [p[0] for p in pts], [p[1] for p in pts])
 
 
 def write_preview(job: dict, d: Path, f: dict) -> None:
     """preview.ogg from the chosen bars with the volume shape, as heard in the page; the choice is
     kept in autochart.json so the page shows it again next time."""
-    import numpy as np, soundfile as sf
-    bar, bars = float(f["preview_bar"]), float(f.get("preview_bars") or PREVIEW_BARS[2])
-    shape = f.get("preview_shape") or []
-    raw = WORK / f"preview_{job['id']}.wav"
-    raw.parent.mkdir(parents=True, exist_ok=True)
-    cut_clip(job, bar, bars, raw)
-    x, sr = sf.read(str(raw))
-    if shape:
-        x = x * shape_gain(shape, np.arange(len(x)) / sr)[:, None]
-    sf.write(str(raw), np.clip(x, -1, 1), sr)
-    ffmpeg("-i", raw, "-c:a", "libvorbis", "-q:a", "5", d / "preview.ogg")
-    raw.unlink()
+    choice = preview.write(d / "mstr.dtx", d / job["info"]["bgm_file"], float(f["preview_bar"]),
+                           float(f.get("preview_bars") or preview.BARS[2]), f.get("preview_shape") or [])
     meta = d / "autochart.json"
     cur = json.loads(meta.read_text()) if meta.exists() else {}
-    cur["preview"] = {"bar": bar, "bars": bars, "shape": shape}
+    cur["preview"] = choice
     meta.write_text(json.dumps(cur, indent=1))
 
 
@@ -452,7 +420,7 @@ def open_chart(path: str) -> dict:
 def set_headers(path: Path, heads: dict, bpm_display: float | None):
     """Header lines are replaced or added. A shown BPM other than the real starting tempo gets a
     BPM chip at the very start (measure 000) so the timing does not change."""
-    lines = path.read_text(encoding="shift_jis", errors="replace").splitlines()
+    lines = path.read_text(encoding="cp932", errors="replace").splitlines()
     base = next(float(l.split(":", 1)[1]) for l in lines if re.match(r"#BPM\s*:", l))
     if bpm_display and abs(bpm_display - base) > 0.005 and not any(l.startswith("#00008") for l in lines):
         heads["BPM"] = f"{bpm_display:.2f}"
@@ -470,7 +438,7 @@ def set_headers(path: Path, heads: dict, bpm_display: float | None):
             lines.insert(i, f"#{k}: {val}")
         else:
             lines[i] = f"#{k}: {val}"
-    path.write_bytes(("\r\n".join(lines) + "\r\n").encode("shift_jis", errors="replace"))
+    path.write_bytes(("\r\n".join(lines) + "\r\n").encode("cp932", errors="replace"))
 
 
 # ---- http ---------------------------------------------------------------------------------------
@@ -559,7 +527,7 @@ class H(BaseHTTPRequestHandler):
                 j = JOBS[data["id"]]
                 out = WORK / f"clip_{j['id']}.wav"
                 out.parent.mkdir(parents=True, exist_ok=True)
-                n = cut_clip(j, float(data["bar"]), float(data.get("bars") or PREVIEW_BARS[2]), out)
+                n = cut_clip(j, float(data["bar"]), float(data.get("bars") or preview.BARS[2]), out)
                 return self.send({"path": str(out), "seconds": n})
             if u.path == "/api/save":
                 return self.send(save(JOBS[data["id"]], data))

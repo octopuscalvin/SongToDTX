@@ -2,6 +2,29 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## 0.7.4
+
+- First build writes the preview sound itself (`preview.py`): 8 bars of the ORIGINAL song (never the
+  drumless track), from the loudest stretch in the first 70% of the song, with the arcade-style volume
+  shape. The app re-cuts and reshapes it with the same code.
+- Add MV: a video from another master that runs slightly fast or slow (e.g. 0.04%, 0.1 s by the end)
+  is measured over the whole song and stretched to fit.
+- `--bpm`: one known tempo for the whole song (e.g. a game song's published BPM); bar lines and odd
+  bars are still found.
+- `--grid-from <chart>`: tempo and bar lines from another chart of the song (official, or one whose
+  bar lines were fixed by hand), lined up automatically by its kick and snare notes; a tempo over
+  `--max-bpm` is counted at half.
+- `--game-style`: no ride lane - the ride goes on the right cymbal and a crash at the same moment
+  on the left, as official game charts write it.
+- With `--ride-foot`: under a ride, bars whose heard foot chicks fit a steady pattern (8ths, off-8ths,
+  2 and 4, beats) get the whole pattern.
+- Charts are written in cp932 (Windows Japanese), so titles like "～" survive.
+- Charts end their lines with a plain CRLF (they had an extra CR, and adding a video doubled the
+  blank lines each time).
+- Add MV: the video is always 1280x720 with square pixels, other shapes get black bars; an odd-sized
+  video (e.g. 1906x1080) was drawn off frame in DTXMania.
+- Hi-hat rolls: the hat under a snare in a run of 16th hats goes at any tempo (was 130 BPM and up).
+
 ## 0.7.3
 
 - Preview clip by bars: start at any bar or quarter bar (64.25) and run 5-17 bars (8 by default)
