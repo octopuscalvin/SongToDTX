@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Song to DTX</title>
+<style>
+:root{--bg:#1c1c1e;--card:#26262a;--field:#1f1f22;--line:#3a3a40;--line2:#55555c;--text:#ececef;--muted:#9a9aa3;
+  --accent:#4f8ff7;--accent-bg:#1e3354;--warn:#f0b44c;--warn-bg:#3d2f14;--ok:#5cc98a;--ok-bg:#163525;--bad:#f07070;--r:8px}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f4f4f6;--card:#fff;--field:#fafafb;--line:#dcdce2;
+  --line2:#b9b9c2;--text:#1c1c1e;--muted:#6b6b75;--accent:#2f6fdc;--accent-bg:#e4eeff;--warn:#9a6400;--warn-bg:#fff3d9;--ok:#1f8a4c;--ok-bg:#e3f5ea;--bad:#c23b3b}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;border-bottom:1px solid var(--line)}
+header h1{font-size:17px;font-weight:600;margin:0}
+main{display:flex;flex-direction:column;gap:16px;padding:16px 24px;max-width:1400px;margin:auto}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.card h2{font-size:14px;font-weight:600;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.num{display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;background:var(--accent-bg);color:var(--accent);font-size:12px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tab{padding:6px 12px;border:1px solid var(--line);border-radius:var(--r);background:none;color:var(--text);cursor:pointer;font:inherit}
+.tab.on{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+.pane{display:none}.pane.on{display:block}
+.drop{border:1.5px dashed var(--line2);border-radius:var(--r);padding:22px;text-align:center;color:var(--muted);cursor:pointer}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+.drop b{color:var(--text);font-weight:600}
+label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
+input[type=text],input[type=number],textarea,select{background:var(--field);color:var(--text);border:1px solid var(--line);border-radius:var(--r);padding:7px 10px;font:inherit}
+input[type=text],textarea{width:100%}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
+textarea{min-height:64px;resize:vertical}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;margin-top:10px}
+button.btn{padding:6px 13px;border-radius:var(--r);border:1px solid var(--line2);background:none;color:var(--text);font:inherit;cursor:pointer;white-space:nowrap}
+button.btn:hover{border-color:var(--text)}
+button.btn.sm{padding:3px 9px;font-size:12px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{filter:brightness(1.1);border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spread{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.bar{height:8px;background:var(--field);border:1px solid var(--line);border-radius:5px;overflow:hidden;margin:10px 0 6px}
+.bar div{height:100%;width:0;background:var(--accent);transition:width .4s}
+.stage{color:var(--muted);font-size:13px}
+details{margin-top:10px}summary{cursor:pointer;color:var(--muted);font-size:12px}
+pre{background:var(--field);border:1px solid var(--line);border-radius:var(--r);padding:10px;max-height:220px;overflow:auto;font:12px/1.45 Consolas,monospace;white-space:pre-wrap;margin:8px 0 0}
+.hint{color:var(--muted);font-size:12px}
+.err{color:var(--bad);font-size:13px;margin-top:8px}
+.okmsg{color:var(--ok);font-size:13px;margin-top:8px;word-break:break-all}
+/* editor */
+.edit{display:grid;grid-template-columns:min-content minmax(0,1fr);gap:16px;align-items:start}
+.tool{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px;color:var(--muted)}
+.tool select{padding:3px 6px;font-size:12px}
+.tool input[type=range]{width:70px;vertical-align:middle}
+#scroller{height:640px;overflow-y:scroll;position:relative;border:1px solid var(--line);border-radius:var(--r);background:#121214;outline:none}
+#cv{position:sticky;top:0;display:block;cursor:default}
+.empty{color:var(--muted);font-size:13px;padding:24px 0;text-align:center}
+.side{display:flex;flex-direction:column;gap:10px;max-height:700px;overflow:auto;padding-right:4px}
+.item{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.item h3{margin:0 0 4px;font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center}
+.item p{margin:4px 0;font-size:13px;color:var(--muted)}
+.item p b{color:var(--text);font-weight:600}
+.tag{flex:none;font:11px Consolas,monospace;padding:1px 7px;border-radius:5px;background:var(--warn-bg);color:var(--warn)}
+.tag.info{background:var(--accent-bg);color:var(--accent)}
+.tag.ok{background:var(--ok-bg);color:var(--ok)}
+.mlist{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+.mbtn{font:12px Consolas,monospace;padding:1px 7px;border-radius:5px;border:1px solid var(--line2);background:none;color:var(--text);cursor:pointer}
+.mbtn:hover{border-color:var(--accent);color:var(--accent)}
+.keys{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7}
+kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px;padding:0 4px}
+.jacket{aspect-ratio:1;width:180px;flex:none;border-radius:var(--r);background:var(--field);border:1px dashed var(--line2);display:flex;align-items:center;justify-content:center;text-align:center;color:var(--muted);overflow:hidden;cursor:pointer;font-size:12px}
+.jacket img{width:100%;height:100%;object-fit:cover}
+.grid2{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 10px;align-items:center;flex:1;min-width:220px}
+.grid2 span{color:var(--muted);font-size:13px}
+.grid2 input{width:100%}
+.ro{background:none!important;border-style:dashed!important;color:var(--muted)!important}
+@media (max-width:980px){.two,.edit{grid-template-columns:1fr}main{padding:16px}}
+</style>
+</head>
+<body>
+<header><h1>Song to DTX <span class="hint" id="ver" style="font-weight:400"></span></h1><span class="hint" id="srv">local · offline</span></header>
+<main>
+<div class="two">
+  <section class="card">
+    <h2><span class="num">1</span>Source</h2>
+    <div class="tabs">
+      <button class="tab on" data-p="file">Song file</button>
+      <button class="tab" data-p="youtube">YouTube (beta)</button>
+      <button class="tab" data-p="score">Score video (beta)</button>
+      <button class="tab" data-p="batch">Batch folders</button>
+    </div>
+    <div class="pane on" id="p-file">
+      <div class="drop" id="drop"><b>Drop a song here</b> or click to browse<br><span class="hint">mp3, flac, wav, m4a, ogg, aiff</span></div>
+      <input type="file" id="fileIn" accept="audio/*,.flac,.m4a,.aiff" hidden>
+      <div class="hint" id="fileName" style="margin-top:8px"></div>
+    </div>
+    <div class="pane" id="p-youtube">
+      <label>YouTube link of the song</label><input type="text" id="ytUrl" placeholder="https://www.youtube.com/watch?v=...">
+      <div class="check"><input type="checkbox" id="ytBga" checked><span>Use the video as BGA (plays with the music)</span></div>
+    </div>
+    <div class="pane" id="p-score">
+      <label>Drum-score video (cover with a scrolling score)</label><input type="text" id="scChart" placeholder="https://www.youtube.com/watch?v=...">
+      <label>Original song video (BGM and BGA)</label><input type="text" id="scSrc" placeholder="https://www.youtube.com/watch?v=...">
+      <p class="hint">The app finds the score pages and the timing. Reading the notes from the pages into score.txt is still done by Claude, then press Generate again.</p>
+    </div>
+    <div class="pane" id="p-batch">
+      <label>Album folders, one per line</label><textarea id="bFolders" placeholder="D:\Music\My album"></textarea>
+      <label>Save into</label><input type="text" id="bDest">
+    </div>
+    <div class="err" id="srcErr"></div>
+  </section>
+
+  <section class="card">
+    <div class="spread"><h2 style="margin:0"><span class="num">2</span>Generate</h2>
+      <div class="row"><button class="btn" id="cancel" hidden>Cancel</button><button class="btn primary" id="go">Generate chart</button></div></div>
+    <div class="bar"><div id="prog"></div></div>
+    <div class="stage" id="stage">Pick a source, then generate. A song takes about a minute on this PC.</div>
+    <div class="err" id="genErr"></div>
+    <details><summary>Show log</summary><pre id="log"></pre></details>
+  </section>
+</div>
+
+<section class="card">
+  <div class="spread"><h2 style="margin:0"><span class="num">3</span>Check and edit the chart</h2>
+    <div class="row"><span class="hint" id="dirty"></span><button class="btn sm" id="revert" hidden>Back to the tool's chart</button><button class="btn sm" id="saveEdits" disabled>Save edits</button></div></div>
+  <div class="edit" style="margin-top:12px">
+    <div>
+      <div class="tool">
+        <button class="btn sm primary" id="playBtn" disabled>Play</button>
+        <span>Snap</span><select id="snap"><option value="1">1/4</option><option value="2">1/8</option><option value="3">1/12</option><option value="4" selected>1/16</option><option value="6">1/24</option><option value="8">1/32</option></select>
+        <span>Zoom</span><select id="zoom"><option value="40">x1</option><option value="64" selected>x1.5</option><option value="96">x2</option><option value="144">x3</option></select>
+        <span>Display</span><select id="fps"><option value="60">60 Hz</option><option value="45">45 Hz</option></select>
+      </div>
+      <div class="tool">
+        <span>BGM</span><input type="range" id="vBgm" min="0" max="100" value="80">
+        <span>Drums</span><input type="range" id="vDrum" min="0" max="100" value="80">
+        <span>Go to measure</span><input type="number" id="goM" min="0" style="width:70px;padding:3px 6px;font-size:12px">
+        <span id="pos" style="font-family:Consolas,monospace"></span>
+      </div>
+      <div id="scroller" tabindex="0"><canvas id="cv"></canvas><div id="spacer"></div></div>
+      <div class="keys">Click a note to select it, <kbd>Shift</kbd>+click to add or remove notes from the selection, drag on empty space to box-select.
+        Drag notes to move them (up/down = timing, left/right = lane). <kbd>↑</kbd><kbd>↓</kbd> move by one snap step, <kbd>←</kbd><kbd>→</kbd> change lane,
+        double-click to add a note, <kbd>Del</kbd> removes, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo, <kbd>Space</kbd> play / stop.</div>
+    </div>
+    <div>
+      <div class="spread" style="margin-bottom:8px"><b style="font-size:13px">Check these measures</b><span class="hint" id="flagCount"></span></div>
+      <div class="side" id="flags"><div class="empty">After generating, anything the tool is unsure about is explained here, with buttons to jump to it and play it.</div></div>
+      <label>Meter hints (optional), then rebuild</label>
+      <div class="row"><input type="text" id="hints" placeholder="76=78 78 78 44 x4; 92=44" style="flex:1"><button class="btn" id="rebuild">Rebuild</button></div>
+      <p class="hint">"92=78" makes measure 092 a 7/8 bar and 4/4 resumes after it. "92=44" forces it back to a normal 4/4 bar. Rebuilding makes a new chart, so hand edits on this one are not carried over.</p>
+    </div>
+  </div>
+</section>
+
+<div class="two">
+  <section class="card">
+    <h2><span class="num">4</span>Song info</h2>
+    <div class="row" style="align-items:flex-start;gap:16px">
+      <div class="jacket" id="jacket" title="Click or drop a picture to change the jacket">Jacket preview<br>click or drop a picture</div>
+      <input type="file" id="jacketIn" accept="image/*" hidden>
+      <div class="grid2">
+        <span>Song name</span><input type="text" id="fTitle">
+        <span>Artist</span><input type="text" id="fArtist">
+        <span>Info</span><input type="text" id="fComment" placeholder="Comment shown in the song list">
+        <span>Level (000-999)</span><input type="number" id="fLevel" min="0" max="999" value="680">
+        <span>BPM displayed</span><input type="number" id="fBpm" step="0.01">
+        <span>Main BPM</span><input type="text" id="fMain" class="ro" readonly placeholder="the BPM played longest">
+        <span>Preview from</span><div class="row"><input type="number" id="fPrev" min="0" step="1" style="width:80px"><span class="hint">s, 15 s clip</span><button class="btn sm" id="play" type="button">Play</button></div>
+      </div>
+    </div>
+    <audio id="aud" hidden></audio>
+  </section>
+  <section class="card">
+    <h2><span class="num">5</span>Output</h2>
+    <p class="hint" style="margin:0 0 10px">Saves into DTXFiles\AutoChart\&lt;song&gt; (auto vN), with your edits. Older versions move to Old versions.</p>
+    <div id="dtxBox" hidden><label>DTXMania folder (the one with DTXFiles in it)</label>
+      <div class="row" style="margin-bottom:10px"><input type="text" id="dtxDir" style="flex:1" placeholder="C:\Games\DTXMania"><button class="btn" id="dtxSet">Use this folder</button></div></div>
+    <button class="btn primary" id="save" style="width:100%">Update info and output DTX file</button>
+    <div class="err" id="saveErr"></div><div class="okmsg" id="saveOk"></div>
+    <div class="row" style="margin-top:10px" id="after" hidden><button class="btn" id="openCr">Open in DTXCreator</button><button class="btn" id="openDir">Open folder</button></div>
+  </section>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let mode = 'file', filePath = '', jacketPath = '', job = null, info = null, saved = '', timer = null;
+const api = (u, body) => fetch(u, body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+  .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+const fileUrl = p => '/api/file?path=' + encodeURIComponent(p);
+const pad3 = m => String(m).padStart(3, '0');
+
+fetch('/api/defaults').then(r => r.json()).then(d => {
+  $('bDest').value = d.dest_batch; $('ver').textContent = 'v' + d.version; $('dtxDir').value = d.dtxmania; $('dtxBox').hidden = d.dtxmania_ok;
+  if (d.last_job) start(d.last_job); })
+  .catch(() => $('srv').textContent = 'server not running');
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'p-' + t.dataset.p));
+  mode = t.dataset.p; $('srcErr').textContent = '';
+});
+
+async function upload(file) {
+  const r = await fetch('/api/upload', {method: 'POST', headers: {'X-Name': encodeURIComponent(file.name)}, body: file});
+  const j = await r.json(); if (!r.ok) throw new Error(j.error); return j.path;
+}
+function dropZone(el, input, onFile) {
+  el.onclick = () => input.click();
+  input.onchange = () => input.files[0] && onFile(input.files[0]);
+  el.ondragover = e => { e.preventDefault(); el.classList.add('over'); };
+  el.ondragleave = () => el.classList.remove('over');
+  el.ondrop = e => { e.preventDefault(); el.classList.remove('over'); e.dataTransfer.files[0] && onFile(e.dataTransfer.files[0]); };
+}
+dropZone($('drop'), $('fileIn'), async f => {
+  $('fileName').textContent = 'Loading ' + f.name + ' ...'; $('srcErr').textContent = '';
+  try { filePath = await upload(f); $('fileName').textContent = f.name + ' ready'; $('fTitle').value = ''; $('fArtist').value = ''; }
+  catch (e) { $('srcErr').textContent = "Couldn't load the file: " + e.message; }
+});
+dropZone($('jacket'), $('jacketIn'), async f => {
+  try { jacketPath = await upload(f); showJacket(jacketPath); } catch (e) { $('saveErr').textContent = "Couldn't load the picture: " + e.message; }
+});
+function showJacket(p) { $('jacket').innerHTML = p ? `<img alt="jacket" src="${fileUrl(p)}">` : 'Jacket preview'; }
+
+function sourceOpts() {
+  const o = {mode, title: $('fTitle').value.trim(), artist: $('fArtist').value.trim(), level: +$('fLevel').value || 680};
+  if (jacketPath) o.jacket = jacketPath;
+  if (mode === 'file') { if (!filePath) throw 'Drop a song file first.'; o.path = filePath; }
+  if (mode === 'youtube') { o.url = $('ytUrl').value.trim(); if (!/^https?:\/\//.test(o.url)) throw 'Enter a YouTube link.'; o.bga = $('ytBga').checked; }
+  if (mode === 'score') { o.chart_url = $('scChart').value.trim(); o.url = $('scSrc').value.trim(); if (!o.chart_url || !o.url) throw 'Enter both links.'; }
+  if (mode === 'batch') { o.folders = $('bFolders').value.trim(); o.dest = $('bDest').value.trim(); if (!o.folders) throw 'Enter at least one album folder.'; }
+  return o;
+}
+$('go').onclick = async () => {
+  $('srcErr').textContent = $('genErr').textContent = '';
+  let o; try { o = sourceOpts(); } catch (e) { $('srcErr').textContent = e; return; }
+  if (!confirmLoseEdits()) return;
+  if ($('hints').value.trim()) o.hints = $('hints').value.trim();
+  try { start((await api('/api/start', o)).id); } catch (e) { $('genErr').textContent = e.message; }
+};
+$('rebuild').onclick = async () => {
+  if (!job) { $('genErr').textContent = 'Generate a chart first.'; return; }
+  if (!confirmLoseEdits()) return;
+  try { start((await api('/api/rebuild', {id: job, opts: {hints: $('hints').value.trim()}})).id); } catch (e) { $('genErr').textContent = e.message; }
+};
+$('cancel').onclick = () => job && api('/api/cancel', {id: job});
+const confirmLoseEdits = () => !E.dirty || confirm('Your unsaved note edits will be lost. Continue?');
+
+function start(id) {
+  job = id; info = null; saved = ''; $('after').hidden = true; $('saveOk').textContent = '';
+  $('go').disabled = true; $('cancel').hidden = false; $('prog').style.width = '3%';
+  stopPlay(); clearInterval(timer); timer = setInterval(poll, 1000); poll();
+}
+async function poll() {
+  let j; try { j = await api('/api/job/' + job); } catch (e) { return; }
+  $('prog').style.width = (j.state === 'done' ? 100 : Math.max(3, j.step / 5 * 100 - 10)) + '%';
+  $('stage').textContent = {queued: 'Waiting for the previous job ...', failed: 'Stopped.'}[j.state] || (j.step ? `Step ${j.step} of 5: ${j.stage}` : j.stage);
+  const pre = $('log'), atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+  pre.textContent = j.log.join('\n'); if (atEnd) pre.scrollTop = pre.scrollHeight;
+  if (['done', 'failed', 'needs_score'].includes(j.state)) {
+    clearInterval(timer); $('go').disabled = false; $('cancel').hidden = true;
+    if (j.state === 'failed') $('genErr').textContent = j.error && j.error.startsWith('NO DRUMS') ? 'This song has almost no drums, so there is nothing to chart.' : (j.error || 'Something went wrong. Open the log to see where.');
+    if (j.state === 'needs_score') $('stage').textContent = j.stage;
+    if (j.state === 'done' && j.mode === 'batch') $('stage').textContent = 'Batch finished. Charts are in ' + $('bDest').value;
+    if (j.info) { fill(j.info, j.out); loadChart(); }
+  }
+}
+function fill(i, out) {
+  info = i; info.out = out;
+  $('stage').textContent = `Chart ready: ${i.bars} bars, ${i.notes} notes.`;
+  if (!$('fTitle').value) $('fTitle').value = i.title;
+  if (!$('fArtist').value || $('fArtist').value === 'Unknown') $('fArtist').value = i.artist;
+  const f2 = x => (+x).toFixed(2).replace(/\.00$/, '');
+  $('fBpm').value = f2(i.bpm_main);
+  $('fMain').value = f2(i.bpm_main) + (i.bpm_min !== i.bpm_max ? `  (range ${(+i.bpm_min).toFixed(0)}-${(+i.bpm_max).toFixed(0)})` : '');
+  if ($('fPrev').value === '') $('fPrev').value = Math.round((i.bgm_seconds || 120) * 0.3);
+  if (!jacketPath && i.jacket) { jacketPath = i.jacket; showJacket(jacketPath); }
+  renderFlags(i);
+}
+
+/* ---------- 6. checks, explained ---------- */
+const nums = s => (s.match(/\d{3}/g) || []).map(Number);
+function rangeNums(s) {                 // "041-048" -> 41..48, "009, 014" -> [9, 14]
+  const out = [];
+  s.replace(/(\d{3})-(\d{3})|(\d{3})/g, (_, a, b, c) => { if (c) out.push(+c); else for (let m = +a; m <= +b; m++) out.push(m); });
+  return out;
+}
+function explain(c) {
+  let m;
+  if ((m = c.match(/^measure (\d+): (\d+)\/(\d+) bar/))) {
+    const L = +m[2], q = +m[3], meter = L % 4 === 0 ? `${L / 4}/4` : L % 2 === 0 ? `${L / 2}/8` : `${L}/16`;
+    return {tag: 'meter', title: `Measure ${m[1]} is a ${meter} bar, not 4/4`, ms: [+m[1]], fix: {label: 'Make it 4/4', hint: `${+m[1]}=44`},
+      what: `The tool heard a shorter or longer bar here (${L} sixteenths instead of ${q}). Songs do have bars like this, often just before a chorus, but it also happens when the beat tracking slips.`,
+      todo: `Play from the bar before. If the notes after it still land on the beat, it's right. If everything after it sounds shifted, click "Make it 4/4" and then Rebuild.`};
+  }
+  if ((m = c.match(/^measure (\d+): tempo ([\d.]+) -> ([\d.]+)/)))
+    return {tag: 'tempo', title: `Tempo change at measure ${m[1]}: ${m[2]} → ${m[3]} BPM`, ms: [+m[1]],
+      what: `The song ${+m[3] > +m[2] ? 'speeds up' : 'slows down'} here. If the change is put one bar too early or too late, notes around it drift away from the music.`,
+      todo: 'Play across this bar. If the notes run ahead or behind just before or after it, tell Claude where the change really starts.'};
+  if ((m = c.match(/^tempo octave: ([\d.]+) or ([\d.]+)/)))
+    return {tag: 'tempo', title: `Speed: ${m[1]} or ${m[2]} BPM?`, ms: [],
+      what: 'Both speeds fit the music. The wrong one makes the chart look twice as dense, or half as dense, as it feels.',
+      todo: 'Scroll through a verse. If the notes look crowded or too sparse for how the song feels, tell Claude which speed is right.'};
+  if ((m = c.match(/^measures (\d+)-(\d+): notes (\d+) ms (late|early)/)))
+    return {tag: 'timing', title: `Measures ${m[1]}-${m[2]}: notes ${m[3]} ms ${m[4]}`, ms: rangeNums(`${m[1]}-${m[2]}`),
+      what: `In these 8 bars the drums in the recording sit about ${m[3]} ms ${m[4] === 'late' ? 'before' : 'after'} the notes. A live drummer pushing or pulling the tempo causes this. Under about 15 ms you won't feel it; above about 25 ms the BGM and the notes start to flam.`,
+      todo: 'Play these bars with the BGM. If the hits sound doubled, ask Claude for a beat-locked grid on this song.'};
+  if ((m = c.match(/^kicks dropped as bass-guitar bleed in measures (.*?) - /)))
+    return {tag: 'kick', title: 'Kicks removed as bass guitar', ms: rangeNums(m[1]),
+      what: 'The bass guitar often plays with the kick drum. In these bars the tool heard kick-like hits that it judged to be bass guitar, and left them out.',
+      todo: 'Play a few of these bars. If you hear a kick drum with no note, double-click the BD lane there to add it.'};
+  if ((m = c.match(/^measures (\d+)-(\d+): many snares over the double kick/)))
+    return {tag: 'snare', title: `Measures ${m[1]}-${m[2]}: busy snare over a double kick`, ms: rangeNums(`${m[1]}-${m[2]}`),
+      what: 'Fast double kick can leak into the snare track, so some of these snares may not be real.',
+      todo: 'Play it. If the real drummer only hits the snare on 2 and 4, select the extra snares and delete them, or ask Claude to rebuild with "backbeat" for these bars.'};
+  if ((m = c.match(/^measure (\d+): tom roll .*pitch sweep/)))
+    return {tag: 'toms', title: `Measure ${m[1]}: tom fill guessed from a pitch sweep`, ms: [+m[1]],
+      what: 'A fast run that moves down in pitch was read as a tom roll. A snare roll or a guitar slide can sound similar.',
+      todo: 'Play it. If it is a snare roll, select the notes and drag them to the SD lane.'};
+  return {tag: 'check', title: c, ms: rangeNums(c), what: '', todo: 'Play these measures and check them by ear.'};
+}
+const RULES = [
+  [/^hat rolls/, 'Hi-hat under snare removed', 'In fast 16th hi-hat runs, a hi-hat on the same 16th as a snare was removed: one hand can\'t play both. In snare-roll bars both hands are on the snare, so the hi-hat is played by the foot (LP) on the beats.'],
+  [/^snare runs/, 'Snare rolls cleaned', 'Other hand notes inside snare rolls were removed so the roll stays playable with two hands.'],
+  [/^crash runs/, 'Crashes split left and right', 'Three or more crashes in a row, a beat or less apart, alternate between the right and left cymbal.'],
+  [/^roll into cymbal/, 'Roll into crash simplified', 'A 32nd roll that ends on a crash plus a drum can\'t be played with two hands, so the drum on the crash was removed.'],
+  [/^foot hi-hat/, 'Foot hi-hat spacing', 'The left foot hi-hat (LP) only plays 4ths or 8ths, never faster.'],
+  [/^tom fill:/, 'Tom fill', 'A run of hits was moved onto the toms, high to low.'],
+];
+function renderFlags(i) {
+  const f = $('flags'); f.innerHTML = '';
+  const card = (tagCls, tag, title, what, todo, ms, fix) => {
+    const d = document.createElement('div'); d.className = 'item';
+    d.innerHTML = `<h3><span class="tag ${tagCls}"></span><span></span></h3>${what ? '<p class="w"></p>' : ''}${todo ? '<p><b>What to do:</b> <span class="t"></span></p>' : ''}<div class="mlist"></div>`;
+    d.querySelector('.tag').textContent = tag; d.querySelector('h3 span:last-child').textContent = title;
+    if (what) d.querySelector('.w').textContent = what;
+    if (todo) d.querySelector('.t').textContent = todo;
+    const ml = d.querySelector('.mlist');
+    ms.slice(0, 40).forEach(m => { const b = document.createElement('button'); b.className = 'mbtn'; b.textContent = pad3(m); b.title = 'Jump to measure ' + pad3(m); b.onclick = () => goTo(m, true); ml.appendChild(b); });
+    if (ms.length) { const b = document.createElement('button'); b.className = 'btn sm'; b.textContent = 'Play from ' + pad3(Math.max(ms[0] - 1, 0)); b.onclick = () => { goTo(Math.max(ms[0] - 1, 0)); playFromView(); }; ml.appendChild(b); }
+    if (fix) { const b = document.createElement('button'); b.className = 'btn sm'; b.textContent = fix.label;
+      b.onclick = () => { const h = $('hints'); if (!h.value.includes(fix.hint)) h.value = (h.value.trim() ? h.value.trim() + '; ' : '') + fix.hint; b.textContent = 'Added to hints'; }; ml.appendChild(b); }
+    f.appendChild(d);
+  };
+  i.checks.forEach(c => { const e = explain(c); card('', e.tag, e.title, e.what, e.todo, e.ms, e.fix); });
+  i.rules.forEach(r => {
+    const hit = RULES.find(x => x[0].test(r));
+    const ms = nums(r.split(':').slice(1).join(':'));
+    if (!ms.length) return;
+    card('info', 'rule', hit ? hit[1] : 'Rule applied', hit ? hit[2] : r, '', ms);
+  });
+  $('flagCount').textContent = i.checks.length ? `${i.checks.length} to check` : '';
+  if (!f.children.length) f.innerHTML = '<div class="item"><h3><span class="tag ok">ok</span><span>Nothing flagged</span></h3><p>Play it through once to be sure.</p></div>';
+}
+
+/* ---------- 1-5. chart editor + player ---------- */
+const LANES = [
+  {k: 'BPM', w: 46, c: '#888'},
+  {k: 'LC', ch: ['1A'], c: '#e8507f'}, {k: 'HH', ch: ['11', '18'], c: '#35c3d6'}, {k: 'LP', ch: ['1B'], c: '#c08ae8'},
+  {k: 'LB', ch: ['1C'], c: '#9d8cf0'}, {k: 'SD', ch: ['12'], c: '#ecca3e'}, {k: 'HT', ch: ['14'], c: '#4cc966'},
+  {k: 'BD', ch: ['13'], c: '#9a9af2'}, {k: 'LT', ch: ['15'], c: '#ec5a58'}, {k: 'FT', ch: ['17'], c: '#ef9440'},
+  {k: 'CY', ch: ['16'], c: '#62a3f0'}, {k: 'RD', ch: ['19'], c: '#3fcab9'}];
+const LW = 34, HEAD = 22, JUDGE = 70, TPB = 192;          // lane width, header px, judge line above bottom, ticks per beat
+let x = 0; LANES.forEach(l => { l.x = x; l.w = l.w || LW; x += l.w; }); const CW = x;
+const laneOf = ch => LANES.findIndex(l => l.ch && l.ch.includes(ch));
+const E = {chart: null, notes: [], sel: new Set(), undo: [], redo: [], dirty: false, ppb: 64, mStart: [], mQ: [], totalTicks: 0, tempo: [], nextId: 1};
+const cv = $('cv'), ctx2 = cv.getContext('2d'), sc = $('scroller');
+
+async function loadChart() {
+  let c; try { c = await api('/api/chart/' + job); } catch (e) { return; }
+  E.chart = c; E.sel.clear(); E.undo = []; E.redo = []; setDirty(false); $('revert').hidden = !c.edited;
+  E.mStart = []; E.mQ = []; let t = 0;
+  for (let m = 0; m <= c.last; m++) { const L = c.measure_len[m] ?? 1; const Q = Math.round(L * 16); E.mStart.push(t); E.mQ.push(Q); t += Q * TPB / 4; }
+  E.mStart.push(t); E.totalTicks = t;
+  const tick = (m, n, d) => E.mStart[m] + n / d * E.mQ[m] * TPB / 4;
+  E.notes = c.chips.map(([m, n, d, ch, wav]) => ({id: E.nextId++, tick: tick(m, n, d), ch, wav, orig: [m, n, d]}));
+  E.tempo = [{tick: 0, bpm: c.base_bpm}].concat(c.tempo.map(([m, n, d, b]) => ({tick: tick(m, n, d), bpm: b})));
+  let sec = 0; E.tempo.forEach((e, i) => { if (i) sec += (e.tick - E.tempo[i - 1].tick) / TPB * 60 / E.tempo[i - 1].bpm; e.sec = sec; });
+  E.bgmSec = c.bgm ? secAt(tick(...c.bgm)) : 0;
+  E.audio = null; $('playBtn').disabled = false;
+  layout(); goTick(0);
+}
+function secAt(tk) { let e = E.tempo[0]; for (const x of E.tempo) { if (x.tick <= tk) e = x; else break; } return e.sec + (tk - e.tick) / TPB * 60 / e.bpm; }
+function tickAt(s) { let e = E.tempo[0]; for (const x of E.tempo) { if (x.sec <= s) e = x; else break; } return e.tick + (s - e.sec) * e.bpm / 60 * TPB; }
+function measureOf(tk) { let lo = 0, hi = E.mStart.length - 2; while (lo < hi) { const md = (lo + hi + 1) >> 1; if (E.mStart[md] <= tk) lo = md; else hi = md - 1; } return lo; }
+
+function layout() {
+  E.ppb = +$('zoom').value;
+  const h = sc.clientHeight - 2; cv.width = CW * devicePixelRatio; cv.height = h * devicePixelRatio;
+  cv.style.width = CW + 'px'; cv.style.height = h + 'px'; sc.style.width = (CW + 18) + 'px';
+  E.viewH = h; E.totalH = E.totalTicks / TPB * E.ppb + h + JUDGE;
+  $('spacer').style.height = Math.max(0, E.totalH - h) + 'px';
+}
+// content y of a tick (0 at the top of the scroll content); screen y = content y - scrollTop
+const yOf = tk => E.totalH - JUDGE - tk / TPB * E.ppb;
+const tickOfY = y => (E.totalH - JUDGE - y) / E.ppb * TPB;
+const judgeTick = () => tickOfY(sc.scrollTop + E.viewH - JUDGE);
+function goTick(tk) { sc.scrollTop = yOf(tk) - (E.viewH - JUDGE); draw(); }
+function goTo(m, flash) {
+  if (!E.chart) return; m = Math.max(0, Math.min(m, E.mStart.length - 2)); stopPlay();
+  sc.scrollTop = yOf(E.mStart[m]) - E.viewH * 0.75; E.flash = flash ? {m, until: performance.now() + 1500} : null; draw();
+  if (flash) setTimeout(draw, 1600);
+}
+
+function draw() {
+  if (!E.chart) { ctx2.clearRect(0, 0, cv.width, cv.height); return; }
+  const d = devicePixelRatio, top = sc.scrollTop, H = E.viewH, snapDiv = +$('snap').value;
+  ctx2.setTransform(d, 0, 0, d, 0, 0); ctx2.fillStyle = '#121214'; ctx2.fillRect(0, 0, CW, H);
+  LANES.forEach((l, i) => { ctx2.fillStyle = i % 2 ? '#17171b' : '#1b1b20'; ctx2.fillRect(l.x, 0, l.w, H); });
+  const t0 = Math.max(0, tickOfY(top + H)), t1 = tickOfY(top);
+  const m0 = measureOf(t0), m1 = measureOf(Math.min(t1, E.totalTicks - 1));
+  ctx2.textAlign = 'center'; ctx2.textBaseline = 'middle';
+  for (let m = m0; m <= m1; m++) {
+    const a = E.mStart[m], b = E.mStart[m + 1], ya = yOf(a) - top, yb = yOf(b) - top;
+    if (E.flash && E.flash.m === m && performance.now() < E.flash.until) { ctx2.fillStyle = 'rgba(79,143,247,.13)'; ctx2.fillRect(0, yb, CW, ya - yb); }
+    ctx2.font = '600 64px "Segoe UI",sans-serif'; ctx2.fillStyle = 'rgba(255,255,255,.07)';
+    ctx2.fillText(pad3(m), LANES[1].x + (CW - LANES[1].x) / 2, (ya + yb) / 2);
+    const step = TPB / snapDiv;
+    for (let k = 1; k * step < b - a; k++) {
+      const y = yOf(a + k * step) - top, onBeat = (k * step) % TPB === 0;
+      ctx2.fillStyle = onBeat ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.07)'; ctx2.fillRect(LANES[1].x, Math.round(y), CW, 1);
+    }
+    ctx2.fillStyle = 'rgba(255,255,255,.75)'; ctx2.fillRect(0, Math.round(ya), CW, 2);
+    ctx2.font = '11px Consolas,monospace'; ctx2.fillStyle = '#aaa'; ctx2.textAlign = 'left'; ctx2.fillText(pad3(m), 3, ya - 8); ctx2.textAlign = 'center';
+    const L = E.mQ[m]; if (L !== 16) { ctx2.fillStyle = '#f0b44c'; ctx2.fillText(`${L}/16`, LANES[0].w / 2, ya - 22); }
+  }
+  ctx2.fillStyle = 'rgba(255,255,255,.12)'; LANES.forEach(l => ctx2.fillRect(l.x, 0, 1, H));
+  ctx2.font = '11px Consolas,monospace';
+  E.tempo.forEach((e, i) => { const y = yOf(e.tick) - top; if (y < -10 || y > H + 10 || (i === 0 && e.tick === 0 && false)) return;
+    ctx2.fillStyle = '#6a6a72'; ctx2.fillRect(2, y - 5, LANES[0].w - 4, 10); ctx2.fillStyle = '#fff'; ctx2.fillText(e.bpm.toFixed(0), LANES[0].w / 2, y); });
+  const drag = E.drag && E.drag.kind === 'move' ? E.drag : null;
+  for (const n of E.notes) {
+    let tk = n.tick, li = laneOf(n.ch);
+    if (drag && E.sel.has(n.id)) { tk += drag.dt; li = Math.max(1, Math.min(LANES.length - 1, li + drag.dl)); }
+    const y = yOf(tk) - top; if (y < -8 || y > H + 8) continue;
+    const l = LANES[li]; ctx2.fillStyle = l.c; ctx2.fillRect(l.x + 2, y - 4, l.w - 4, 8);
+    if (n.ch === '18') { ctx2.fillStyle = '#0b0b0d'; ctx2.beginPath(); ctx2.arc(l.x + l.w / 2, y, 2.6, 0, 7); ctx2.fill(); }
+    if (n.ch === '1B') { ctx2.fillStyle = 'rgba(0,0,0,.45)'; ctx2.fillRect(l.x + 2, y - 4, l.w - 4, 3); }
+    if (E.sel.has(n.id)) { ctx2.strokeStyle = '#fff'; ctx2.lineWidth = 2; ctx2.strokeRect(l.x + 1, y - 5, l.w - 2, 10); }
+  }
+  if (E.drag && E.drag.kind === 'box') { const r = E.drag; ctx2.strokeStyle = '#4f8ff7'; ctx2.lineWidth = 1; ctx2.fillStyle = 'rgba(79,143,247,.15)';
+    const x0 = Math.min(r.x0, r.x1), y0 = Math.min(r.y0, r.y1) - top; ctx2.fillRect(x0, y0, Math.abs(r.x1 - r.x0), Math.abs(r.y1 - r.y0)); ctx2.strokeRect(x0, y0, Math.abs(r.x1 - r.x0), Math.abs(r.y1 - r.y0)); }
+  ctx2.fillStyle = P.on ? '#f05a5a' : 'rgba(79,143,247,.9)'; ctx2.fillRect(0, H - JUDGE, CW, 2);
+  ctx2.fillStyle = 'rgba(18,18,20,.92)'; ctx2.fillRect(0, 0, CW, HEAD);
+  ctx2.font = '600 11px "Segoe UI",sans-serif'; LANES.forEach(l => { ctx2.fillStyle = l.c === '#888' ? '#ccc' : l.c; ctx2.fillText(l.k, l.x + l.w / 2, HEAD / 2); });
+  const jt = judgeTick(), jm = measureOf(Math.max(0, jt)), sec = secAt(Math.max(0, jt));
+  $('pos').textContent = `measure ${pad3(jm)} · ${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+}
+sc.addEventListener('scroll', () => { if (!P.on) requestAnimationFrame(draw); });
+sc.addEventListener('wheel', () => { if (P.on) stopPlay(); }, {passive: true});
+window.addEventListener('resize', () => { if (E.chart) { const jt = judgeTick(); layout(); goTick(jt); } });
+$('zoom').onchange = () => { const jt = judgeTick(); layout(); goTick(jt); };
+$('snap').onchange = draw;
+$('goM').onchange = () => goTo(+$('goM').value, true);
+
+/* editing */
+function hitNote(px, py) {
+  const tk = tickOfY(py), li = LANES.findIndex(l => px >= l.x && px < l.x + l.w);
+  if (li < 1) return null; let best = null, bd = 7;
+  for (const n of E.notes) { if (laneOf(n.ch) !== li) continue; const dy = Math.abs(yOf(n.tick) - py); if (dy < bd) { bd = dy; best = n; } }
+  return best;
+}
+function snapshot() { E.undo.push(JSON.stringify(E.notes)); if (E.undo.length > 200) E.undo.shift(); E.redo = []; }
+function restore(s) { E.notes = JSON.parse(s); E.sel.clear(); setDirty(true); draw(); }
+function setDirty(v) { E.dirty = v; $('saveEdits').disabled = !v; $('dirty').textContent = v ? 'Unsaved edits' : ''; }
+function laneCh(n, li) { const l = LANES[li]; return n.ch === '18' && l.k === 'HH' ? '18' : l.ch[0]; }
+function moveSel(dt, dl) {
+  if (!E.sel.size) return; snapshot();
+  for (const n of E.notes) if (E.sel.has(n.id)) {
+    const tk = Math.max(0, Math.min(E.totalTicks - 1, n.tick + dt)), li = Math.max(1, Math.min(LANES.length - 1, laneOf(n.ch) + dl));
+    if (tk !== n.tick || li !== laneOf(n.ch)) { const ch = laneCh(n, li); if (ch !== n.ch) { n.ch = ch; n.wav = E.chart.lane_wav[ch] || n.wav; } n.tick = tk; n.orig = null; }
+  }
+  setDirty(true); draw();
+}
+function mousePos(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top + sc.scrollTop]; }
+cv.addEventListener('mousedown', e => {
+  if (!E.chart || e.button !== 0) return; sc.focus(); if (P.on) stopPlay();
+  const [px, py] = mousePos(e), n = hitNote(px, py);
+  if (n) {
+    if (e.shiftKey || e.ctrlKey) { E.sel.has(n.id) ? E.sel.delete(n.id) : E.sel.add(n.id); draw(); return; }
+    if (!E.sel.has(n.id)) { E.sel.clear(); E.sel.add(n.id); }
+    E.drag = {kind: 'move', y0: py, x0: px, dt: 0, dl: 0, anchor: n.tick};
+  } else {
+    if (!e.shiftKey) E.sel.clear();
+    E.drag = {kind: 'box', x0: px, y0: py, x1: px, y1: py, base: new Set(E.sel)};
+  }
+  draw();
+});
+window.addEventListener('mousemove', e => {
+  if (!E.drag) return; const [px, py] = mousePos(e), d = E.drag;
+  if (d.kind === 'move') {
+    const step = TPB / +$('snap').value;
+    d.dt = Math.round((tickOfY(py) - tickOfY(d.y0)) / step) * step;
+    const l0 = LANES.findIndex(l => d.x0 >= l.x && d.x0 < l.x + l.w), l1 = LANES.findIndex(l => px >= l.x && px < l.x + l.w);
+    d.dl = l1 > 0 && l0 > 0 ? l1 - l0 : d.dl;
+  } else {
+    d.x1 = px; d.y1 = py; E.sel = new Set(d.base);
+    const xa = Math.min(d.x0, px), xb = Math.max(d.x0, px), ya = Math.min(d.y0, py), yb = Math.max(d.y0, py);
+    for (const n of E.notes) { const l = LANES[laneOf(n.ch)], y = yOf(n.tick); if (y >= ya && y <= yb && l.x + l.w > xa && l.x < xb) E.sel.add(n.id); }
+  }
+  draw();
+});
+window.addEventListener('mouseup', () => {
+  const d = E.drag; E.drag = null; if (!d) return;
+  if (d.kind === 'move' && (d.dt || d.dl)) moveSel(d.dt, d.dl); else draw();
+});
+cv.addEventListener('dblclick', e => {
+  if (!E.chart) return; const [px, py] = mousePos(e); if (hitNote(px, py)) return;
+  const li = LANES.findIndex(l => px >= l.x && px < l.x + l.w); if (li < 1) return;
+  const step = TPB / +$('snap').value, m = measureOf(tickOfY(py)), rel = Math.round((tickOfY(py) - E.mStart[m]) / step) * step;
+  const tk = Math.min(E.mStart[m] + rel, E.totalTicks - 1), ch = LANES[li].ch[0];
+  snapshot(); const n = {id: E.nextId++, tick: tk, ch, wav: E.chart.lane_wav[ch] || '02', orig: null};
+  E.notes.push(n); E.sel = new Set([n.id]); setDirty(true); draw(); hitSound(n);
+});
+sc.addEventListener('keydown', e => {
+  if (!E.chart) return; const step = TPB / +$('snap').value;
+  if (e.key === ' ') { e.preventDefault(); P.on ? stopPlay() : playFromView(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (E.undo.length) { E.redo.push(JSON.stringify(E.notes)); restore(E.undo.pop()); } return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); if (E.redo.length) { E.undo.push(JSON.stringify(E.notes)); restore(E.redo.pop()); } return; }
+  if (!E.sel.size) return;
+  const k = {ArrowUp: [step, 0], ArrowDown: [-step, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1]}[e.key];
+  if (k) { e.preventDefault(); moveSel(...k); }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); snapshot(); E.notes = E.notes.filter(n => !E.sel.has(n.id)); E.sel.clear(); setDirty(true); draw(); }
+  if (e.key === 'Escape') { E.sel.clear(); draw(); }
+});
+function gcd(a, b) { while (b) [a, b] = [b, a % b]; return a; }
+function chipsOut() {
+  return E.notes.map(n => {
+    if (n.orig) return [...n.orig, n.ch, n.wav];
+    const m = measureOf(n.tick), rel = Math.round(n.tick - E.mStart[m]), den = E.mQ[m] * TPB / 4, g = gcd(rel, den);
+    return [m, rel / g, den / g, n.ch, n.wav];
+  });
+}
+async function saveEdits() {
+  if (!E.dirty) return true;
+  try { const r = await api('/api/chart/' + job, {chips: chipsOut()}); setDirty(false); $('revert').hidden = false;
+    $('dirty').textContent = `Saved, ${r.notes} notes`; return true; }
+  catch (e) { $('dirty').textContent = "Couldn't save edits: " + e.message; return false; }
+}
+$('saveEdits').onclick = saveEdits;
+$('revert').onclick = async () => { if (!confirm("Undo all your hand edits and go back to the tool's chart?")) return;
+  await api('/api/revert', {id: job}); const jt = judgeTick(); await loadChart(); goTick(jt); };
+
+/* player: Web Audio, BGM + kit sounds at their #VOLUME, chart scrolls under the judge line */
+const P = {on: false, ac: null, srcs: [], timer: 0};
+async function loadAudio() {
+  if (E.audio) return E.audio;
+  P.ac = P.ac || new AudioContext();
+  $('playBtn').textContent = 'Loading sounds ...';
+  const dec = async url => P.ac.decodeAudioData(await (await fetch(url)).arrayBuffer());
+  const wavs = {}; await Promise.all(Object.entries(E.chart.wavs).map(async ([k, w]) => { try { wavs[k] = {buf: await dec(w.url), vol: w.vol}; } catch (e) {} }));
+  let bgm = null; if (E.chart.bgm_url) { try { bgm = await dec(E.chart.bgm_url); } catch (e) {} }
+  $('playBtn').textContent = 'Play';
+  return E.audio = {wavs, bgm};
+}
+function hitSound(n) { if (!E.audio) return; const w = E.audio.wavs[n.wav]; if (!w) return;
+  const s = P.ac.createBufferSource(), g = P.ac.createGain(); s.buffer = w.buf; g.gain.value = w.vol / 100 * $('vDrum').value / 100; s.connect(g).connect(P.ac.destination); s.start(); }
+async function playFromView() {
+  if (!E.chart) return; const a = await loadAudio(); if (P.ac.state === 'suspended') await P.ac.resume();
+  stopPlay();
+  const t0 = secAt(Math.max(0, judgeTick())), start = P.ac.currentTime + 0.2;
+  P.on = true; P.t0 = t0; P.start = start; $('playBtn').textContent = 'Stop';
+  if (a.bgm) { const s = P.ac.createBufferSource(), g = P.ac.createGain(); s.buffer = a.bgm; g.gain.value = $('vBgm').value / 100; s.connect(g).connect(P.ac.destination);
+    const off = t0 - E.bgmSec; if (off < a.bgm.duration) { s.start(start + Math.max(0, -off), Math.max(0, off)); P.srcs.push(s); P.bgmGain = g; } }
+  P.events = E.notes.map(n => ({t: secAt(n.tick), wav: n.wav})).filter(e => e.t >= t0 - 0.001).sort((x, y) => x.t - y.t);
+  P.i = 0; P.end = Math.max(secAt(E.totalTicks), E.bgmSec + (a.bgm ? a.bgm.duration : 0));
+  const sched = () => {
+    const now = P.ac.currentTime;
+    while (P.i < P.events.length && start + P.events[P.i].t - t0 < now + 0.15) {
+      const ev = P.events[P.i++], w = a.wavs[ev.wav]; if (!w) continue;
+      const s = P.ac.createBufferSource(), g = P.ac.createGain(); s.buffer = w.buf; g.gain.value = w.vol / 100 * $('vDrum').value / 100;
+      s.connect(g).connect(P.ac.destination); s.start(Math.max(now, start + ev.t - t0)); P.srcs.push(s);
+      if (P.srcs.length > 400) P.srcs.splice(0, 200);
+    }
+  };
+  sched(); P.timer = setInterval(sched, 25);
+  let last = 0;
+  const frame = ts => {
+    if (!P.on) return; requestAnimationFrame(frame);
+    const fps = +$('fps').value; if (ts - last < 1000 / fps - 2) return; last = ts;
+    const lat = P.ac.outputLatency || P.ac.baseLatency || 0, sec = P.ac.currentTime - lat - start + t0;
+    if (sec > P.end) { stopPlay(); return; }
+    sc.scrollTop = yOf(tickAt(Math.max(t0, sec))) - (E.viewH - JUDGE); draw();
+  };
+  requestAnimationFrame(frame);
+}
+function stopPlay() {
+  if (!P.on) return; P.on = false; clearInterval(P.timer);
+  P.srcs.forEach(s => { try { s.stop(); } catch (e) {} }); P.srcs = []; $('playBtn').textContent = 'Play'; draw();
+}
+$('playBtn').onclick = () => P.on ? stopPlay() : playFromView();
+$('vBgm').oninput = () => { if (P.bgmGain) P.bgmGain.gain.value = $('vBgm').value / 100; };
+
+/* song info + output */
+$('play').onclick = () => {
+  const a = $('aud');
+  if (!info) { $('saveErr').textContent = 'Generate a chart first.'; return; }
+  if (!a.paused) { a.pause(); $('play').textContent = 'Play'; return; }
+  a.src = fileUrl(info.out + '\\bgm.wav'); a.currentTime = +$('fPrev').value || 0; a.play(); $('play').textContent = 'Stop';
+  clearTimeout(a._t); a._t = setTimeout(() => { a.pause(); $('play').textContent = 'Play'; }, 15000);
+};
+$('save').onclick = async () => {
+  $('saveErr').textContent = $('saveOk').textContent = '';
+  if (!info) { $('saveErr').textContent = 'Generate a chart first.'; return; }
+  const lv = +$('fLevel').value;
+  if ($('fLevel').value === '' || !(lv >= 0 && lv <= 999)) { $('saveErr').textContent = 'Level must be 000 to 999.'; return; }
+  if (!$('fTitle').value.trim()) { $('saveErr').textContent = 'Enter a song name.'; return; }
+  if (!(await saveEdits())) { $('saveErr').textContent = "Your note edits couldn't be saved, so the chart wasn't output."; return; }
+  try {
+    const r = await api('/api/save', {id: job, title: $('fTitle').value.trim(), artist: $('fArtist').value.trim(), comment: $('fComment').value.trim(),
+      level: lv, bpm_display: $('fBpm').value, preview_start: $('fPrev').value, jacket: jacketPath});
+    saved = r.saved; $('after').hidden = false;
+    $('saveOk').textContent = 'Saved to ' + r.saved + (r.moved.length ? '. Moved to Old versions: ' + r.moved.join(', ') : '');
+  } catch (e) { $('saveErr').textContent = "Couldn't save: " + e.message; }
+};
+$('dtxSet').onclick = async () => {
+  $('saveErr').textContent = '';
+  try { await api('/api/settings', {dtxmania: $('dtxDir').value.trim()}); $('dtxBox').hidden = true; }
+  catch (e) { $('saveErr').textContent = e.message; }
+};
+$('openCr').onclick = () => saved && api('/api/open', {path: saved});
+$('openDir').onclick = () => saved && api('/api/folder', {path: saved});
+window.addEventListener('beforeunload', e => { if (E.dirty) { e.preventDefault(); e.returnValue = ''; } });
+</script>
+</body>
+</html>

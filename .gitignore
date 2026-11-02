@@ -1,0 +1,36 @@
+# your own settings, models, samples and work files never go to GitHub
+settings.json
+.venv/
+vendor/
+cache/
+out/
+kit/
+__pycache__/
+*.pyc
+
+# audio, video, pictures and charts (songs and charts belong to their owners)
+*.wav
+*.ogg
+*.flac
+*.mp3
+*.m4a
+*.aif
+*.aiff
+*.wma
+*.xa
+*.mp4
+*.wmv
+*.avi
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.dtx
+*.gda
+*.box.def
+*.pth
+*.pt
+*.ckpt
+*.mid
+*.npz
+*.zip
