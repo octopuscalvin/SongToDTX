@@ -29,6 +29,7 @@ AUDIO = (".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aif", ".aiff", ".wma")
 safe = lambda s: re.sub(r'[\\/:*?"<>|]', "_", s).strip(" .") or "untitled"
 JOBS: dict[str, dict] = {}
 CRLF = chr(13) + chr(10)
+AUTO = "mstr.dtx.auto"    # the tool's own chart, kept once when notes are edited (not .dtx: DTXMania would list it)
 GPU = threading.Lock()
 
 
@@ -180,6 +181,8 @@ def load_jobs():
     can reopen the last one after a restart."""
     for out in sorted(WORK.glob("*/chart_*/mstr.dtx"), key=lambda p: p.stat().st_mtime):
         out = out.parent
+        if (out / "mstr.auto.dtx").exists() and not (out / AUTO).exists():   # name before 0.7.2
+            (out / "mstr.auto.dtx").rename(out / AUTO)
         jid = out.name[6:]
         meta = json.loads((out / "job.json").read_text(encoding="utf-8")) if (out / "job.json").exists() else {}
         opts = meta.get("opts") or {"mode": "file", "path": str(next(out.parent.glob("*.wav"), ""))}
@@ -225,15 +228,15 @@ def chart_json(job: dict) -> dict:
             "bgm_url": url(wavs[bgm.value]) if bgm and bgm.value in wavs else None,
             "chips": [[c.measure, c.pos.numerator, c.pos.denominator, c.channel, c.value] for c in drums],
             "wavs": {k: {"url": url(v), "vol": vols.get(k, 100)} for k, v in wavs.items() if k in used | set(lane_wav.values())},
-            "lane_wav": lane_wav, "edited": (d / "mstr.auto.dtx").exists()}
+            "lane_wav": lane_wav, "edited": (d / AUTO).exists()}
 
 
 def save_chart(job: dict, chips: list) -> int:
     """Rewrite the drum chips of the job's chart from the editor (the tool's own version is kept
-    once as mstr.auto.dtx). Returns the number of notes written."""
+    once as mstr.dtx.auto). Returns the number of notes written."""
     p = job["out"] / "mstr.dtx"
-    if not (job["out"] / "mstr.auto.dtx").exists():
-        shutil.copy2(p, job["out"] / "mstr.auto.dtx")
+    if not (job["out"] / AUTO).exists():
+        shutil.copy2(p, job["out"] / AUTO)
     lines = [l for l in p.read_bytes().decode("shift_jis", errors="replace").splitlines()
              if not ((m := dtx.LINE_RE.match(l)) and m[2].upper() in dtx.DRUM_CHANNELS)]
     groups: dict[tuple[int, str], dict] = {}
@@ -286,11 +289,20 @@ def chart_info(job: dict) -> dict:
         elif on and re.search(r"\b(bars?|measures?)\b.*\d{3}", l):
             rules.append(l.strip())
     o = job["opts"]
+    bgm = min((c for c in ch.chips if c.channel == "01"), key=lambda c: (c.measure, c.pos), default=None)
+    bgm_file = ch.headers.get(f"WAV{bgm.value}", "bgm.wav") if bgm else "bgm.wav"
+    extra = {}
+    if o.get("mode") == "existing":                      # song info as the chart has it now
+        h = ch.headers
+        pic = d / h["PREIMAGE"] if h.get("PREIMAGE") else None
+        extra = {"existing": True, "comment": h.get("COMMENT", ""), "level": h.get("DLEVEL", ""),
+                 "preview": h.get("PREVIEW", ""), "jacket": str(pic) if pic and pic.exists() else None}
     return {"title": ch.headers.get("TITLE", ""), "artist": ch.headers.get("ARTIST", ""),
             "bpm_header": ch.base_bpm, "bpm_main": main, "bpm_min": min(spans, default=main),
-            "bpm_max": max(spans, default=main), "bars": meta.get("bars"),
+            "bpm_max": max(spans, default=main), "bars": meta.get("bars") or max((c.measure for c in ch.chips), default=0),
             "notes": sum(c.channel in dtx.DRUM_CHANNELS for c in ch.chips), "checks": meta.get("checks", []),
-            "rules": rules, "jacket": o.get("jacket"), "bgm_seconds": audio_seconds(d / "bgm.wav")}
+            "rules": rules, "jacket": o.get("jacket"), "bgm_file": bgm_file,
+            "bgm_seconds": audio_seconds(d / bgm_file)} | extra
 
 
 def audio_seconds(f: Path) -> float:
@@ -314,11 +326,13 @@ def next_version(title: str) -> int:
 def save(job: dict, f: dict) -> dict:
     """Copy the chart into DTXFiles/AutoChart/<title> (auto vN), rewrite the song info headers,
     cut the preview sound, move older versions to Old versions (skipped while DTXMania has them open)."""
+    if job["opts"].get("mode") == "existing":
+        return save_in_place(job, f)
     title = f.get("title") or job["info"]["title"]
     kind = "score" if job["opts"]["mode"] == "score" else "auto"
     v = next_version(title)
     dst = DEST / f"{safe(title)} ({kind} v{v})"
-    shutil.copytree(job["out"], dst, ignore=shutil.ignore_patterns("mstr.auto.dtx", "job.json"))
+    shutil.copytree(job["out"], dst, ignore=shutil.ignore_patterns(AUTO, "job.json"))
     heads = {"TITLE": title, "ARTIST": f.get("artist", ""), "COMMENT": f.get("comment", ""),
              "DLEVEL": str(int(f.get("level") or 680))}
     jacket = f.get("jacket") or job["info"].get("jacket")
@@ -343,6 +357,46 @@ def save(job: dict, f: dict) -> dict:
             except OSError:
                 pass
     return {"saved": str(dst), "moved": moved}
+
+
+def save_in_place(job: dict, f: dict) -> dict:
+    """An opened existing chart: song info, jacket and preview written into its own folder. The
+    chart as it was is kept once as mstr.dtx.bak."""
+    d = job["out"]
+    if not (d / "mstr.dtx.bak").exists():
+        shutil.copy2(d / AUTO if (d / AUTO).exists() else d / "mstr.dtx", d / "mstr.dtx.bak")
+    heads = {"TITLE": f.get("title") or job["info"]["title"], "ARTIST": f.get("artist", ""),
+             "COMMENT": f.get("comment", ""), "DLEVEL": str(int(f.get("level") or 680))}
+    jacket = f.get("jacket")
+    if jacket and Path(jacket).exists() and Path(jacket).resolve().parent != d.resolve():
+        name = "jacket" + Path(jacket).suffix.lower()
+        shutil.copy2(jacket, d / name)
+        heads["PREIMAGE"] = name
+    if f.get("preview_start") not in (None, ""):
+        s = float(f["preview_start"])
+        ffmpeg("-ss", f"{s:.2f}", "-t", "15", "-i", d / job["info"]["bgm_file"], "-af",
+               "afade=t=in:d=0.5,afade=t=out:st=13.5:d=1.5", "-c:a", "libvorbis", "-q:a", "5", d / "preview.ogg")
+        heads["PREVIEW"] = "preview.ogg"
+    set_headers(d / "mstr.dtx", heads, float(f["bpm_display"]) if f.get("bpm_display") else None)
+    if (d / AUTO).exists():                              # edits are saved for good here
+        (d / AUTO).unlink()
+    job["info"] = chart_info(job)
+    return {"saved": str(d), "moved": [], "in_place": True}
+
+
+def open_chart(path: str) -> dict:
+    """An existing chart folder (or .dtx) opened for editing in place: a finished job whose work and
+    out folder is the chart's own folder."""
+    p = Path(path.strip().strip('"'))
+    d = p.parent if p.suffix.lower() == ".dtx" else p
+    if not (d / "mstr.dtx").exists():
+        raise ValueError(f"No mstr.dtx in {d}")
+    jid = uuid.uuid4().hex[:8]
+    job = {"id": jid, "opts": {"mode": "existing", "path": str(d)}, "work": d, "out": d, "state": "done",
+           "step": 5, "stage": "chart opened", "log": [], "info": None, "error": None}
+    job["info"] = chart_info(job)
+    JOBS[jid] = job
+    return job
 
 
 def set_headers(path: Path, heads: dict, bpm_display: float | None):
@@ -405,8 +459,9 @@ class H(BaseHTTPRequestHandler):
             return self.send(chart_json(j))
         if u.path == "/api/file":                     # jacket / sounds; only files under the app's own folders
             p = Path(unquote(parse_qs(u.query).get("path", [""])[0])).resolve()
-            if any(r.resolve() in p.parents for r in (HERE, config.CACHE, DTXMANIA)) and p.is_file():
-                ct = {".png": "image/png", ".ogg": "audio/ogg", ".wav": "audio/wav"}.get(p.suffix.lower(), "image/jpeg")
+            roots = [HERE, config.CACHE, DTXMANIA] + [j["out"] for j in JOBS.values() if j["opts"].get("mode") == "existing"]
+            if any(r.resolve() in p.parents for r in roots) and p.is_file():
+                ct = {".png": "image/png", ".ogg": "audio/ogg", ".wav": "audio/wav", ".mp3": "audio/mpeg"}.get(p.suffix.lower(), "image/jpeg")
                 return self.send(p.read_bytes(), ct)
             return self.send({"error": "not found"}, code=404)
         if u.path == "/api/charts":                   # chart folders in DTXFiles, newest first, for "add a music video"
@@ -434,16 +489,20 @@ class H(BaseHTTPRequestHandler):
             data = json.loads(self.body() or b"{}")
             if u.path == "/api/start":
                 return self.send({"id": start_job(data)["id"]})
+            if u.path == "/api/load":                 # an existing chart, edited in place
+                return self.send({"id": open_chart(data["path"])["id"]})
             if u.path == "/api/rebuild":
+                if JOBS[data["id"]]["opts"].get("mode") == "existing":
+                    return self.send({"error": "An opened chart has no source song to rebuild from."}, code=400)
                 return self.send({"id": start_job(data.get("opts", {}), data["id"])["id"]})
             if u.path.startswith("/api/chart/"):
                 n = save_chart(JOBS[u.path.rsplit("/", 1)[1]], data["chips"])
                 return self.send({"notes": n})
             if u.path == "/api/revert":            # back to the tool's own chart
                 j = JOBS[data["id"]]
-                if (j["out"] / "mstr.auto.dtx").exists():
-                    shutil.copy2(j["out"] / "mstr.auto.dtx", j["out"] / "mstr.dtx")
-                    (j["out"] / "mstr.auto.dtx").unlink()
+                if (j["out"] / AUTO).exists():
+                    shutil.copy2(j["out"] / AUTO, j["out"] / "mstr.dtx")
+                    (j["out"] / AUTO).unlink()
                     j["info"] = chart_info(j)
                 return self.send({"ok": True})
             if u.path == "/api/save":

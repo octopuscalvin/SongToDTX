@@ -2,12 +2,25 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## 0.7.2
+
+- Double kick: above 120 BPM, already two kicks a 16th apart are split between the feet (right, left),
+  so no foot plays two 16ths in a row; below that, runs of 3+ as before. Score-mode charts now get the
+  same foot split.
+- BGM: every chart folder now gets the original song as its BGM (`--bgm drumless` for the old way).
+- Add MV: the chart backup is now `mstr.dtx.before_mv`, so DTXMania doesn't list it as a second song.
+- Score mode: after an open hi-hat the closing closed hat gets the left-foot pedal (as charts from audio do).
+- **Existing chart** tab: open any chart folder, check and move notes, play it, and change the song name,
+  artist, comment, level, displayed BPM, jacket and preview start. "Save changes" writes into the same
+  folder; the chart as it was is kept once as `mstr.dtx.bak`.
+- The editor's backup of the tool's chart is now `mstr.dtx.auto` (was `mstr.auto.dtx`, which DTXMania listed).
+
 ## 0.7.1
 
 - YouTube (beta): **Add a music video to a chart you already have** (`add_mv.py`). The app finds where the
   chart's music sits in the video's sound, cuts the video's longer intro (or puts black in front when it
   starts later), converts it to WMV and starts it with the BGM. The chart is backed up as
-  `mstr.before_mv.dtx`. If the video is a different edit, it lists the measures that will be out of sync.
+  `mstr.dtx.before_mv`. If the video is a different edit, it lists the measures that will be out of sync.
 
 ## 0.7.0
 

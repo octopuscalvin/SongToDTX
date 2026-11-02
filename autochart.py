@@ -297,6 +297,7 @@ HANDS = {"11", "18", "12", "14", "15", "17", "16", "19", "1A"}
 HAND_DROP_ORDER = ["11", "18", "19", "17", "15", "14", "1A", "16", "12"]
 DOUBLE_KICK_BPM = 150.0  # a 156 BPM double-kick song needs two feet
 DOUBLE_KICK_RUN = 3   # split between the feet from 3 in a row
+DOUBLE_KICK_PAIR_BPM = 120.0   # above this, already 2 kicks a 16th apart are split
 
 
 def limit_hands(notes: list[Note]) -> list[Note]:
@@ -371,16 +372,26 @@ def verify_kick_runs(notes: list[Note], drums: Path, bpms: np.ndarray, bar_start
     return [n for n in notes if id(n) not in drop]
 
 
+def left_foot_busy(notes: list[Note]) -> list[Note]:
+    """No hi-hat pedal (1B) within a 16th of a left-pedal kick, unless a hand hat is there."""
+    lbd = np.array(sorted(float(n.q) for n in notes if n.ch == "1C"))
+    hats = {n.q for n in notes if n.ch == "11"}
+    return [n for n in notes if not (n.ch == "1B" and n.q not in hats and len(lbd)
+                                     and np.abs(lbd - float(n.q)).min() <= 1)]
+
+
 def double_kick(notes: list[Note], bar_starts: list[int], bpms: np.ndarray) -> list[Note]:
-    """Rule: DOUBLE_KICK_RUN+ kicks in a row (16ths or 16th-triplets) are split between the
-    feet, at any tempo. Straight 16ths: the
-    in-between 16ths ("e"/"a") go to the left bass pedal (1C); triplet runs alternate R L R."""
+    """Rule: DOUBLE_KICK_RUN+ kicks in a row (16ths or closer) are split between the feet, at
+    any tempo; above DOUBLE_KICK_PAIR_BPM already a pair is, so no foot plays two 16ths in a row.
+    Straight 16ths: the in-between 16ths ("e"/"a") go to the left bass pedal (1C); triplet and
+    32nd runs alternate R L R."""
     kicks = sorted((n for n in notes if n.ch == "13"), key=lambda n: n.q)
     bs = np.array(bar_starts)
     run: list[Note] = []
 
     def flush():
-        if len(run) < DOUBLE_KICK_RUN:
+        fast = bpms[min(int(run[0].q), len(bpms) - 1)] > DOUBLE_KICK_PAIR_BPM if run else False
+        if len(run) < (2 if fast else DOUBLE_KICK_RUN):
             return
         if all(n.q.denominator == 1 for n in run):
             for n in run:
@@ -984,6 +995,31 @@ def open_hihats(notes: list[Note], drums: Path) -> list[Note]:
     return [n for n in out if not (n.ch == "1B" and n.q in busy)]
 
 
+def close_open_hats(notes: list[Note]) -> list[Note]:
+    """Score mode: open hats come from the score, the foot close doesn't. The first closed hat
+    after an open one gets the left-foot pedal (11 + 1B) unless a pedal chip closed it already;
+    left foot on the double kick within a beat -> that hat stays open instead (as open_hihats)."""
+    hats = sorted((n for n in notes if n.ch in ("11", "18", "1B")), key=lambda n: (n.q, n.ch != "1B"))
+    lbd = np.array(sorted(float(n.q) for n in notes if n.ch == "1C"))
+    pedal = {n.q for n in notes if n.ch == "1B"}
+    out, was_open = list(notes), False
+    for n in hats:
+        if n.ch == "18":
+            was_open = True
+        elif n.ch == "1B":
+            was_open = False
+        elif was_open:
+            was_open = False
+            if n.q in pedal:
+                continue
+            if len(lbd) and np.abs(lbd - float(n.q)).min() <= 4:
+                n.ch, was_open = "18", True
+            else:
+                out.append(Note(n.q, "1B", n.t))
+                pedal.add(n.q)
+    return out
+
+
 RIDE_OVER_HAT = 0.0   # dB: cymbal stem over hi-hat stem at a "hi-hat" hit -> it was the ride
 CHICK_RISE = 8.0   # dB: a foot chick on the LarsNet hi-hat stem (6-16 kHz) over the moment before
 
@@ -1285,10 +1321,7 @@ def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_che
     notes = limit_hands(notes)
     notes = double_kick(notes, starts, bpms)
     notes = open_hihats(notes, drums)
-    lbd = np.array(sorted(float(n.q) for n in notes if n.ch == "1C"))
-    hats = {n.q for n in notes if n.ch == "11"}
-    notes = [n for n in notes if not (n.ch == "1B" and n.q not in hats and len(lbd)
-                                      and np.abs(lbd - float(n.q)).min() <= 1)]   # left foot busy
+    notes = left_foot_busy(notes)
     print(f"      playability: dropped {n_before - sum(n.ch != '1B' for n in notes)} 3rd-hand notes, "
           f"{sum(n.ch == '1C' for n in notes)} kicks moved to left pedal; "
           f"{sum(n.ch == '18' for n in notes)} open hi-hats, {sum(n.ch == '1B' for n in notes)} foot closes")
@@ -1434,7 +1467,7 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     odd = {int(L): int((lens == L).sum()) for L in np.unique(lens) if L != 16}
     print(f"      {len(lens)} bars; non-4/4 bars (in 16ths): {odd or 'none'}")
     if score:
-        notes, tom_log = score_notes(score, T, starts, score_first), []
+        notes, tom_log = close_open_hats(left_foot_busy(double_kick(score_notes(score, T, starts, score_first), starts, bpms))), []
     else:
         notes, tom_log = audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_check,
                                      ride_foot, groove, swing)
@@ -1538,7 +1571,8 @@ if __name__ == "__main__":
     ap.add_argument("out_dir", type=Path)
     ap.add_argument("--title", default=None)
     ap.add_argument("--artist", default="Unknown")
-    ap.add_argument("--bgm", choices=["full", "drumless"], default="drumless")
+    ap.add_argument("--bgm", choices=["full", "drumless"], default="full",
+                    help="BGM in the folder: the original song (default) or the drums removed")
     ap.add_argument("--input", choices=["drums", "mix"], default="mix",
                     help="audio fed to the drum transcriber")
     ap.add_argument("--bars", default="",

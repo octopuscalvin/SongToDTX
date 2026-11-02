@@ -4,7 +4,7 @@
     over the whole song, so a different edit or an extra scene is noticed and reported by measure),
   * cut the video's extra intro (or put black in front when the video starts later than the BGM),
     convert it to WMV2 without sound and start it with the BGM chip (#AVI01, channel 54).
-The chart is backed up once to <name>.before_mv.dtx; earlier #AVI lines and channel 54 are replaced.
+The chart is backed up once to <name>.dtx.before_mv (not .dtx, or DTXMania lists it as a song); earlier #AVI lines and channel 54 are replaced.
 
 usage: add_mv.py <chart folder or .dtx> <video URL|file> <work dir>"""
 import argparse, re, shutil, subprocess, sys
@@ -158,7 +158,7 @@ def main():
     subprocess.run(["ffmpeg", "-v", "error", "-y", *cut, "-i", str(video), "-an", "-vf", vf,
                     "-c:v", "wmv2", "-b:v", "3500k", str(tmp)], check=True)
     shutil.copy2(tmp, path.parent / NAME)
-    backup = path.with_suffix(".before_mv.dtx")
+    backup = path.with_name(path.name + ".before_mv")
     if not backup.exists():
         shutil.copy2(path, backup)
     attach(path, NAME, measure, slot, slots)

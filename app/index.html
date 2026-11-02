@@ -90,6 +90,7 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
       <button class="tab" data-p="youtube">YouTube (beta)</button>
       <button class="tab" data-p="score">Score video (beta)</button>
       <button class="tab" data-p="batch">Batch folders</button>
+      <button class="tab" data-p="open">Existing chart</button>
     </div>
     <div class="pane on" id="p-file">
       <div class="drop" id="drop"><b>Drop a song here</b> or click to browse<br><span class="hint">mp3, flac, wav, m4a, ogg, aiff</span></div>
@@ -106,7 +107,7 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
         <label>Music video (YouTube link or video file)</label><input type="text" id="mvUrl" placeholder="https://www.youtube.com/watch?v=...">
         <p class="hint">The app finds where the chart's music is inside the video, cuts the video's longer intro (or puts
           black in front if the video starts later) and starts the picture with the music. The chart is backed up first
-          as <i>mstr.before_mv.dtx</i>. If the video is a different edit (an extra scene or a cut in the middle), it lists
+          as <i>mstr.dtx.before_mv</i>. If the video is a different edit (an extra scene or a cut in the middle), it lists
           the measures where the picture will be out of sync.</p>
         <div class="row"><button class="btn" id="mvGo">Add MV to chart</button><span class="hint" id="mvStage"></span></div>
         <div class="err" id="mvErr"></div><div class="okmsg" id="mvOk"></div>
@@ -120,6 +121,12 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
     <div class="pane" id="p-batch">
       <label>Album folders, one per line</label><textarea id="bFolders" placeholder="D:\Music\My album"></textarea>
       <label>Save into</label><input type="text" id="bDest">
+    </div>
+    <div class="pane" id="p-open">
+      <label>Chart folder (pick one or paste its folder)</label><input type="text" id="opChart" list="chartList" placeholder="D:\DTXMania\DTXFiles\...">
+      <p class="hint">Opens a chart you already have: check and move notes, play it, and change the song info, jacket and
+        preview start. "Save changes" writes into the same folder (the chart as it was is kept once as mstr.dtx.bak).</p>
+      <button class="btn" id="opGo">Open chart</button>
     </div>
     <div class="err" id="srcErr"></div>
   </section>
@@ -245,7 +252,16 @@ function sourceOpts() {
   if (mode === 'batch') { o.folders = $('bFolders').value.trim(); o.dest = $('bDest').value.trim(); if (!o.folders) throw 'Enter at least one album folder.'; }
   return o;
 }
+$('opGo').onclick = async () => {
+  $('srcErr').textContent = $('genErr').textContent = '';
+  const path = $('opChart').value.trim();
+  if (!path) { $('srcErr').textContent = 'Pick a chart folder first.'; return; }
+  if (!confirmLoseEdits()) return;
+  jacketPath = ''; ['fTitle', 'fArtist', 'fComment', 'fPrev'].forEach(k => $(k).value = '');
+  try { start((await api('/api/load', {path})).id); } catch (e) { $('srcErr').textContent = e.message; }
+};
 $('go').onclick = async () => {
+  if (mode === 'open') return $('opGo').onclick();
   $('srcErr').textContent = $('genErr').textContent = '';
   let o; try { o = sourceOpts(); } catch (e) { $('srcErr').textContent = e; return; }
   if (!confirmLoseEdits()) return;
@@ -301,13 +317,21 @@ async function poll() {
 }
 function fill(i, out) {
   info = i; info.out = out;
-  $('stage').textContent = `Chart ready: ${i.bars} bars, ${i.notes} notes.`;
+  $('stage').textContent = i.existing ? `Opened: ${i.bars} bars, ${i.notes} notes. Changes are saved into this folder.` : `Chart ready: ${i.bars} bars, ${i.notes} notes.`;
+  $('save').textContent = i.existing ? 'Save changes to this chart' : 'Update info and output DTX file';
+  $('rebuild').disabled = !!i.existing;
+  if (i.existing) {                      // the chart's own song info, as it is now
+    $('fTitle').value = i.title; $('fArtist').value = i.artist; $('fComment').value = i.comment || '';
+    $('fLevel').value = i.level || 680; $('fPrev').value = '';
+    $('fPrev').placeholder = i.preview ? 'keep' : '';
+    jacketPath = i.jacket || ''; showJacket(jacketPath);
+  }
   if (!$('fTitle').value) $('fTitle').value = i.title;
   if (!$('fArtist').value || $('fArtist').value === 'Unknown') $('fArtist').value = i.artist;
   const f2 = x => (+x).toFixed(2).replace(/\.00$/, '');
   $('fBpm').value = f2(i.bpm_main);
   $('fMain').value = f2(i.bpm_main) + (i.bpm_min !== i.bpm_max ? `  (range ${(+i.bpm_min).toFixed(0)}-${(+i.bpm_max).toFixed(0)})` : '');
-  if ($('fPrev').value === '') $('fPrev').value = Math.round((i.bgm_seconds || 120) * 0.3);
+  if ($('fPrev').value === '' && !i.existing) $('fPrev').value = Math.round((i.bgm_seconds || 120) * 0.3);
   if (!jacketPath && i.jacket) { jacketPath = i.jacket; showJacket(jacketPath); }
   renderFlags(i);
 }
@@ -630,7 +654,7 @@ $('play').onclick = () => {
   const a = $('aud');
   if (!info) { $('saveErr').textContent = 'Generate a chart first.'; return; }
   if (!a.paused) { a.pause(); $('play').textContent = 'Play'; return; }
-  a.src = fileUrl(info.out + '\\bgm.wav'); a.currentTime = +$('fPrev').value || 0; a.play(); $('play').textContent = 'Stop';
+  a.src = fileUrl(info.out + '\\' + (info.bgm_file || 'bgm.wav')); a.currentTime = +$('fPrev').value || 0; a.play(); $('play').textContent = 'Stop';
   clearTimeout(a._t); a._t = setTimeout(() => { a.pause(); $('play').textContent = 'Play'; }, 15000);
 };
 $('save').onclick = async () => {
@@ -644,7 +668,7 @@ $('save').onclick = async () => {
     const r = await api('/api/save', {id: job, title: $('fTitle').value.trim(), artist: $('fArtist').value.trim(), comment: $('fComment').value.trim(),
       level: lv, bpm_display: $('fBpm').value, preview_start: $('fPrev').value, jacket: jacketPath});
     saved = r.saved; $('after').hidden = false;
-    $('saveOk').textContent = 'Saved to ' + r.saved + (r.moved.length ? '. Moved to Old versions: ' + r.moved.join(', ') : '');
+    $('saveOk').textContent = (r.in_place ? 'Saved changes in ' : 'Saved to ') + r.saved + (r.moved.length ? '. Moved to Old versions: ' + r.moved.join(', ') : '');
   } catch (e) { $('saveErr').textContent = "Couldn't save: " + e.message; }
 };
 $('dtxSet').onclick = async () => {

@@ -9,6 +9,7 @@ Version: see [VERSION](VERSION) and [CHANGELOG.md](CHANGELOG.md).
 
 1. **Source**: a song file (mp3, flac, wav, m4a, ogg, aiff), a YouTube link, a drum-score video, or whole album folders.
    A music video can also be added to a chart you already have (YouTube tab): its intro is cut to fit.
+   **Existing chart** opens a chart you already have to fix notes, song info, jacket or preview in place.
 2. **Generate**: separates the drums, finds the tempo and bar lines, transcribes the hits and writes a chart that
    two hands and two feet can play.
 3. **Check and edit**: measures the tool is unsure about are explained in plain words. A DTXCreator-style editor
