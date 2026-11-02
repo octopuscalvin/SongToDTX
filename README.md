@@ -8,6 +8,7 @@ Version: see [VERSION](VERSION) and [CHANGELOG.md](CHANGELOG.md).
 ## What it does
 
 1. **Source**: a song file (mp3, flac, wav, m4a, ogg, aiff), a YouTube link, a drum-score video, or whole album folders.
+   A music video can also be added to a chart you already have (YouTube tab): its intro is cut to fit.
 2. **Generate**: separates the drums, finds the tempo and bar lines, transcribes the hits and writes a chart that
    two hands and two feet can play.
 3. **Check and edit**: measures the tool is unsure about are explained in plain words. A DTXCreator-style editor
@@ -48,6 +49,7 @@ fills missing ones with simple synthesized sounds; replace any of them with samp
 .venv\Scripts\python autochart.py -h          (all options: meter hints, tempo hints, kit, score mode ...)
 .venv\Scripts\python batch_albums.py <dest> <album folder> [...]
 .venv\Scripts\python video_score.py <score video> <source video> <work folder>
+.venv\Scripts\python add_mv.py <chart folder> <music video URL|file> <work folder>
 ```
 
 ## Licenses and credits

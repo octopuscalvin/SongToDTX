@@ -2,6 +2,13 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## 0.7.1
+
+- YouTube (beta): **Add a music video to a chart you already have** (`add_mv.py`). The app finds where the
+  chart's music sits in the video's sound, cuts the video's longer intro (or puts black in front when it
+  starts later), converts it to WMV and starts it with the BGM. The chart is backed up as
+  `mstr.before_mv.dtx`. If the video is a different edit, it lists the measures that will be out of sync.
+
 ## 0.7.0
 
 First public version.

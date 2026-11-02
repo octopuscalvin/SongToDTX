@@ -42,9 +42,9 @@ def run(job: dict, cmd: list, cwd: Path = HERE) -> int:
     for line in p.stdout:
         line = line.rstrip()
         job["log"].append(line)
-        m = re.match(r"\[(\d)/5\]\s*(.*)", line)
+        m = re.match(r"\[(\d)/(\d)\]\s*(.*)", line)
         if m:
-            job["step"], job["stage"] = int(m[1]), m[2].rstrip(" .")
+            job["step"], job["stage"] = int(m[1]), m[3].rstrip(" .")
     return p.wait()
 
 
@@ -84,6 +84,12 @@ def job_thread(job: dict):
                 code = run(job, [PY, HERE / "batch_albums.py", o.get("dest") or DTXMANIA / "DTXFiles" / "AutoChart (batch)",
                                  *[f for f in o["folders"].splitlines() if f.strip()]])
                 job["state"] = "done" if code == 0 else "failed"
+                return
+            if mode == "mv":                          # music video onto an existing chart (add_mv.py)
+                code = run(job, [PY, HERE / "add_mv.py", o["chart"], o["url"], w])
+                job["state"] = "done" if code == 0 else "failed"
+                if code:
+                    job["error"] = (job["log"] or ["add_mv failed"])[-1]
                 return
             if mode == "file":
                 src = Path(o["path"])
@@ -403,11 +409,16 @@ class H(BaseHTTPRequestHandler):
                 ct = {".png": "image/png", ".ogg": "audio/ogg", ".wav": "audio/wav"}.get(p.suffix.lower(), "image/jpeg")
                 return self.send(p.read_bytes(), ct)
             return self.send({"error": "not found"}, code=404)
+        if u.path == "/api/charts":                   # chart folders in DTXFiles, newest first, for "add a music video"
+            root = DTXMANIA / "DTXFiles"
+            dirs = {f.parent for f in root.rglob("*.dtx") if "Old versions" not in f.parts} if root.is_dir() else set()
+            dirs = sorted(dirs, key=lambda d: -d.stat().st_mtime)
+            return self.send({"charts": [{"path": str(d), "name": str(d.relative_to(root))} for d in dirs]})
         if u.path == "/api/defaults":                 # last job too, so a reloaded page picks it up again
             return self.send({"dest_batch": str(DTXMANIA / "DTXFiles" / "AutoChart (batch)"), "level": 680,
                               "version": VERSION, "dtxmania": str(DTXMANIA),
                               "dtxmania_ok": (DTXMANIA / "DTXFiles").is_dir(),
-                              "last_job": list(JOBS)[-1] if JOBS else None})
+                              "last_job": next((k for k, j in reversed(JOBS.items()) if j["opts"].get("mode") != "mv"), None)})
         self.send({"error": "not found"}, code=404)
 
     def do_POST(self):

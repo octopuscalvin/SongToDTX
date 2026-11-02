@@ -46,6 +46,7 @@ button:disabled{opacity:.5;cursor:default}
 details{margin-top:10px}summary{cursor:pointer;color:var(--muted);font-size:12px}
 pre{background:var(--field);border:1px solid var(--line);border-radius:var(--r);padding:10px;max-height:220px;overflow:auto;font:12px/1.45 Consolas,monospace;white-space:pre-wrap;margin:8px 0 0}
 .hint{color:var(--muted);font-size:12px}
+.mvbox{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .err{color:var(--bad);font-size:13px;margin-top:8px}
 .okmsg{color:var(--ok);font-size:13px;margin-top:8px;word-break:break-all}
 /* editor */
@@ -98,6 +99,18 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
     <div class="pane" id="p-youtube">
       <label>YouTube link of the song</label><input type="text" id="ytUrl" placeholder="https://www.youtube.com/watch?v=...">
       <div class="check"><input type="checkbox" id="ytBga" checked><span>Use the video as BGA (plays with the music)</span></div>
+      <div class="mvbox">
+        <b>Add a music video to a chart you already have</b>
+        <label>Chart folder</label><input type="text" id="mvChart" list="chartList" placeholder="pick a chart or paste its folder">
+        <datalist id="chartList"></datalist>
+        <label>Music video (YouTube link or video file)</label><input type="text" id="mvUrl" placeholder="https://www.youtube.com/watch?v=...">
+        <p class="hint">The app finds where the chart's music is inside the video, cuts the video's longer intro (or puts
+          black in front if the video starts later) and starts the picture with the music. The chart is backed up first
+          as <i>mstr.before_mv.dtx</i>. If the video is a different edit (an extra scene or a cut in the middle), it lists
+          the measures where the picture will be out of sync.</p>
+        <div class="row"><button class="btn" id="mvGo">Add MV to chart</button><span class="hint" id="mvStage"></span></div>
+        <div class="err" id="mvErr"></div><div class="okmsg" id="mvOk"></div>
+      </div>
     </div>
     <div class="pane" id="p-score">
       <label>Drum-score video (cover with a scrolling score)</label><input type="text" id="scChart" placeholder="https://www.youtube.com/watch?v=...">
@@ -245,6 +258,26 @@ $('rebuild').onclick = async () => {
   try { start((await api('/api/rebuild', {id: job, opts: {hints: $('hints').value.trim()}})).id); } catch (e) { $('genErr').textContent = e.message; }
 };
 $('cancel').onclick = () => job && api('/api/cancel', {id: job});
+/* add a music video to an existing chart: its own job, so the chart being edited stays loaded */
+api('/api/charts').then(r => $('chartList').innerHTML = r.charts.map(c => `<option value="${c.path.replace(/"/g, '&quot;')}">${c.name}</option>`).join('')).catch(() => {});
+$('mvGo').onclick = async () => {
+  $('mvErr').textContent = $('mvOk').textContent = '';
+  const o = {mode: 'mv', chart: $('mvChart').value.trim(), url: $('mvUrl').value.trim()};
+  if (!o.chart) { $('mvErr').textContent = 'Pick a chart first.'; return; }
+  if (!o.url) { $('mvErr').textContent = 'Enter the video link or file.'; return; }
+  let id; try { id = (await api('/api/start', o)).id; } catch (e) { $('mvErr').textContent = e.message; return; }
+  $('mvGo').disabled = true;
+  const t = setInterval(async () => {
+    let j; try { j = await api('/api/job/' + id); } catch (e) { return; }
+    $('mvStage').textContent = j.state === 'queued' ? 'Waiting for the previous job ...' : j.stage;
+    if (j.state !== 'done' && j.state !== 'failed') return;
+    clearInterval(t); $('mvGo').disabled = false; $('mvStage').textContent = '';
+    if (j.state === 'failed') { $('mvErr').textContent = j.error || 'Something went wrong.'; return; }
+    const warn = j.log.filter(l => l.startsWith('OUT OF SYNC')).map(l => l.slice(13));
+    $('mvOk').textContent = j.log.filter(l => l.startsWith('MV added')).pop() || 'MV added.';
+    if (warn.length) $('mvErr').textContent = warn.join(' ');
+  }, 1000);
+};
 const confirmLoseEdits = () => !E.dirty || confirm('Your unsaved note edits will be lost. Continue?');
 
 function start(id) {
