@@ -2,6 +2,11 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## 0.7.5
+
+- Separated drum tracks are cached by the song's full path, not its folder name: two folders with
+  the same name (e.g. two `completed` folders) no longer share each other's drums.
+
 ## 0.7.4
 
 - First build writes the preview sound itself (`preview.py`): 8 bars of the ORIGINAL song (never the

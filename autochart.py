@@ -77,7 +77,7 @@ def cache_key(audio: Path) -> str:
 
 # ---- 1. source separation ---------------------------------------------------
 def separate(audio: Path) -> tuple[Path, Path]:
-    out = CACHE / "demucs" / audio.parent.name
+    out = CACHE / "demucs" / cache_key(audio)   # by full path: two folders can hold the same file name
     stem_dir = out / "htdemucs" / audio.stem
     drums, rest = stem_dir / "drums.wav", stem_dir / "no_drums.wav"
     if not drums.exists():
