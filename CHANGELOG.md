@@ -58,6 +58,10 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   has no strokes the transcriber can hear is written as 16ths, right cymbal on the 8ths and left
   cymbal between, with a volume per half bar that follows how loud the cymbals are (a swell from
   silence steps up). Stretches where the cymbals keep sounding with no notes are listed for checking.
+- Tempo map: two tempo switches that crossed while being placed no longer leave a section running
+  backwards in time (the short section between them is dropped and its neighbours' switch searched
+  again). A real tempo step of 2-4% between two long sections (each fits its own steady tempo far
+  better than one shared tempo) is no longer merged as a "drifting take"; slow live drifts still are.
 - Octopus app icon (`app\icon.png`, `app\icon.ico`): browser tab, installer, Start menu and desktop
   shortcuts.
 

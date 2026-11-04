@@ -144,6 +144,9 @@ def refine_boundary(a: Section, b: Section, onsets: np.ndarray, w: np.ndarray,
     return float(b.phase + np.floor((first_b - 0.01 - b.phase) / p) * p)
 
 
+MIN_SECTION = 2.0   # s; a tempo section shorter than this after refining its switches is dropped
+
+
 def find_sections(onsets: np.ndarray, w: np.ndarray, ref_bpm: float,
                   min_len: float = 6.0) -> list[Section]:
     centers, cands, S = local_tempo(onsets, w, ref_bpm)
@@ -178,10 +181,22 @@ def find_sections(onsets: np.ndarray, w: np.ndarray, ref_bpm: float,
     # boundaries, which can be several seconds off)
     for s in sections:
         fit_section(s, onsets, w, margin=3.0, search=1.5)
-    # exact switch points, then refit on the corrected ranges
-    for a, b in zip(sections, sections[1:]):
-        t = refine_boundary(a, b, onsets, w)
-        a.end = b.start = t
+    # exact switch points, then refit on the corrected ranges; two refined switches can cross
+    # (a short section between them comes out with a negative length) - drop that section and
+    # refine its neighbours' switch again, searching the whole stretch it covered
+    coarse = [s.end for s in sections[:-1]]   # coarse switch k: sections k -> k+1
+    spans = [6.0] * len(coarse)
+    while True:
+        for k, (a, b) in enumerate(zip(sections, sections[1:])):
+            a.end = coarse[k]
+            a.end = b.start = refine_boundary(a, b, onsets, w, spans[k])
+        short = [i for i, s in enumerate(sections) if s.end - s.start < MIN_SECTION]
+        if not short or len(sections) < 3:
+            break
+        i = min(short, key=lambda j: sections[j].end - sections[j].start)
+        lo, hi = coarse[i - 1], coarse[i]   # never the first or last section (infinite)
+        coarse[i - 1], spans[i - 1] = (lo + hi) / 2, (hi - lo) / 2 + 6.0
+        del sections[i], coarse[i], spans[i]
     for s in sections:
         fit_section(s, onsets, w, margin=0.0, search=0.3)
     # merge neighbours that ended up at the same BPM
@@ -226,6 +241,32 @@ def switch_at(sections: list[Section], prev_bar: float) -> float:
 
 # ---- slow drift (live takes) ---------------------------------------------------
 CLOSE_SECTIONS = 0.04  # neighbouring sections closer than 4% in BPM are one drifting take
+STEP_MIN = 0.02        # a jump of at least 2% in BPM (a live band speeding up creeps by less) ...
+STEP_LEN = 20.0        # s; between sections both at least this long ...
+STEP_LOSS = 0.75       # ... where one grid keeps under 75% of a section's on-grid score: a real tempo step
+
+
+def section_fit(s: Section, onsets: np.ndarray, w: np.ndarray, lo: float, hi: float) -> float:
+    """Share of the onset strength in lo..hi that sits within ~12 ms of the section's 16th grid."""
+    m = (onsets >= lo) & (onsets < hi)
+    if m.sum() < 8:
+        return 0.0
+    on, ww = onsets[m], w[m]
+    d = ((on - s.phase) / s.tatum + 0.5) % 1 - 0.5
+    return float((ww * np.exp(-(d * s.tatum / 0.012) ** 2)).sum() / ww.sum())
+
+
+def real_step(a: Section, b: Section, onsets: np.ndarray, w: np.ndarray) -> bool:
+    """Two long sections a few % apart that each fit their own steady grid far better than one
+    shared grid (e.g. 194.7 -> 199.9 for 30 s each) are a real tempo step, not a drifting take."""
+    lo = a.start if np.isfinite(a.start) else float(onsets[0])
+    hi = b.end if np.isfinite(b.end) else float(onsets[-1])
+    if abs(np.log(b.bpm / a.bpm)) < STEP_MIN or a.end - lo < STEP_LEN or hi - b.start < STEP_LEN:
+        return False
+    one = Section(lo, hi, a.bpm)
+    fit_section(one, onsets, w, margin=0.0, search=4.0)
+    return any(section_fit(one, onsets, w, x, y) < STEP_LOSS * section_fit(s, onsets, w, x, y)
+               for s, x, y in ((a, lo, a.end), (b, b.start, hi)))
 
 
 def merge_close_sections(sections: list[Section], onsets: np.ndarray, w: np.ndarray) -> list[Section]:
@@ -236,8 +277,8 @@ def merge_close_sections(sections: list[Section], onsets: np.ndarray, w: np.ndar
     out = list(sections)
     while True:   # refitting can bring merged neighbours within range again
         merged = [out[0]]
-        for s in out[1:]:
-            if abs(np.log(s.bpm / merged[-1].bpm)) < CLOSE_SECTIONS:
+        for prev, s in zip(out, out[1:]):   # the step test needs prev's own fitted grid
+            if abs(np.log(s.bpm / merged[-1].bpm)) < CLOSE_SECTIONS and not real_step(prev, s, onsets, w):
                 merged[-1] = Section(merged[-1].start, s.end, merged[-1].bpm)
             else:
                 merged.append(s)
