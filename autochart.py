@@ -297,6 +297,7 @@ class Note:
     ch: str
     t: float          # original audio time
     wav: str = ""     # sample id when not the lane's default (sounds.dress)
+    vol: float = 1.0  # share of the lane's volume (soft cymbal rolls)
 
 
 STRAIGHT = [Fraction(i, 4) for i in range(4)]      # 16ths (in beats)
@@ -690,6 +691,94 @@ def crash_hints(notes: list[Note], bar_starts: list[int], T: np.ndarray, spec: s
             done += 1
     print(f"      crash hints: {done} crashes")
     return sorted(out, key=lambda n: (n.q, n.ch))
+
+
+ROLL_TOP = 0.6      # cymbal roll volume at the song's loud-cymbal level ...
+ROLL_FLOOR = 0.1    # ... and its softest share; in between it follows the stem level (dB / 30)
+ROLL_SEEN = -25.0   # check list: cymbal stem this loud (dB under the song's loud cymbals) ...
+ROLL_BUMPS = 8.0    # ... with this many small stick bumps per beat and no hand note: a roll?
+
+
+def cymbal_env(drums: Path) -> tuple[np.ndarray, int, float]:
+    """5 ms RMS level (dB) of the LarsNet cymbal stem, its frame rate and its loud level."""
+    import soundfile as sf
+    x, sr = sf.read(str(drum_parts(drums)["cymbals"]))
+    x = x.mean(1) if x.ndim > 1 else x
+    hop = sr // 200
+    n = len(x) // hop
+    e = 20 * np.log10(np.sqrt((x[:n * hop].reshape(n, hop) ** 2).mean(1) + 1e-12))
+    return e, 200, float(np.percentile(e, 95))
+
+
+def parse_roll_spans(spec: str, bar_starts: list[int]) -> list[tuple[int, int]]:
+    """"9.5; 63-66; 112; 114.5-115.5" -> 16th ranges: a measure, part of one from a quarter on
+    (9.5 = its second half) or a run of measures; it runs to the end of its last measure, or to
+    a quarter inside it (115.5 = the middle of measure 115)."""
+    def at(x: float) -> int:
+        m = int(x)
+        b0, b1 = bar_starts[m - 1], bar_starts[m]
+        return b0 + int(round((x - m) * (b1 - b0)))
+    out = []
+    for tok in filter(None, (p.strip() for p in spec.replace(",", ";").split(";"))):
+        lo, _, hi = tok.partition("-")
+        b = float(hi or int(float(lo)))
+        out.append((at(float(lo)), bar_starts[int(b)] if b == int(b) else at(b)))
+    return out
+
+
+def cymbal_roll_hints(notes: list[Note], bar_starts: list[int], T: np.ndarray, spec: str,
+                      drums: Path) -> list[Note]:
+    """--cymbal-roll: a cymbal roll the transcriber can't see
+    (a wash with no clear strokes) is written as 16ths, CY on the 8ths and LC on the off-16ths,
+    both hands on it (other hand notes there go; kicks and pedal stay). Each half bar gets one
+    volume, following how loud the cymbal stem is there: a swell from silence steps up."""
+    e, fps, ref = cymbal_env(drums)
+    lag = float(np.median([n.t - T[int(n.q)] for n in notes if n.q == int(n.q) and int(n.q) < len(T)]))
+    bs = np.array(bar_starts)
+    out, added = list(notes), 0
+    for q0, q1 in parse_roll_spans(spec, bar_starts):
+        out = [n for n in out if not (q0 <= n.q < q1 and n.ch not in ("13", "1C", "1B"))]
+        q = q0
+        while q < q1:
+            k = int(np.searchsorted(bs, q, side="right") - 1)
+            half = (bs[k + 1] - bs[k]) / 2
+            h1 = min(q1, int(bs[k] + half * (1 + int((q - bs[k]) >= half))))   # end of this half bar
+            seg = e[int(T[q] * fps):max(int(T[min(h1, len(T) - 1)] * fps), int(T[q] * fps) + 1)]
+            lvl = float(np.median(seg)) - ref
+            share = round(float(np.clip(ROLL_TOP * 10 ** (lvl / 30), ROLL_FLOOR, ROLL_TOP)) * 20) / 20
+            for p in range(q, h1):
+                out.append(Note(Fraction(p), "16" if (p - bs[k]) % 2 == 0 else "1A", T[p] + lag, vol=share))
+                added += 1
+            q = h1
+    print(f"      cymbal rolls: {added} roll notes written")
+    return sorted(out, key=lambda n: (n.q, n.ch))
+
+
+def unseen_rolls(notes: list[Note], bar_starts: list[int], T: np.ndarray, drums: Path,
+                 log: list[str]) -> None:
+    """CHECK items: 2+ beats where the cymbal stem keeps sounding, loud and full of small stick
+    bumps, with no hand note charted - maybe a cymbal roll (written with --cymbal-roll)."""
+    from scipy.signal import find_peaks
+    e, fps, ref = cymbal_env(drums)
+    hand = {int(n.q) for n in notes if n.ch not in ("13", "1C", "1B")}
+    found = []
+    run = []
+    for q in range(bar_starts[0], bar_starts[-1] - 3, 4):
+        if q + 4 >= len(T):
+            break
+        seg = e[int(T[q] * fps):int(T[q + 4] * fps)]
+        roll = (len(seg) > 5 and np.median(seg) - ref >= ROLL_SEEN and not hand & set(range(q, q + 4))
+                and len(find_peaks(seg, prominence=1.5)[0]) >= ROLL_BUMPS)
+        if roll:
+            run.append(q)
+        if run and (not roll or q + 4 >= bar_starts[-1] - 3):
+            if len(run) >= 2:
+                found.append(int(np.searchsorted(bar_starts, run[0], side="right")))
+            run = []
+    if found:
+        log.append("cymbal keeps sounding with no notes (a cymbal roll?) in measures "
+                   + ", ".join(f"{m:03d}" for m in sorted(set(found)))
+                   + " - add it with --cymbal-roll if it is one")
 
 
 CRASH_RUN = 3   # crashes in a row, a beat or less apart, from here on alternate right / left
@@ -1630,7 +1719,8 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
           merge_bars: int = 0, groove: Path | None = None, swing: int = 0,
           tempo_from: str = "", crash: str = "", snare24: bool = False,
           score: Path | None = None, score_first: int = 2, video: Path | None = None,
-          fixed_bpm: float = 0.0, game_style: bool = False, grid_from: Path | None = None) -> Path:
+          fixed_bpm: float = 0.0, game_style: bool = False, grid_from: Path | None = None,
+          cymbal_roll: str = "") -> Path:
     import soundfile as sf
     out_dir.mkdir(parents=True, exist_ok=True)
     print("[1/5] separating stems ...")
@@ -1770,6 +1860,10 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     notes = hat_under_crash(cymbal_pairs(notes), bpms)
     notes = crash_runs(notes)
     notes = roll_into_cymbal(notes, starts)
+    if cymbal_roll:
+        notes = cymbal_roll_hints(notes, starts, T, cymbal_roll, drums)
+    if not score:
+        unseen_rolls(notes, starts, T, drums, tom_log)
     if game_style:
         notes = ride_on_cymbal(notes)
 
@@ -1858,7 +1952,10 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
 
     # self-check: how far each charted note lands from the hit it came from
     chart = dtx.read_dtx(path)
-    placed = np.array([t for t, _ in chart.drum_notes()])
+    rolls = {n.wav for n in notes if n.vol != 1.0}   # cymbal rolls have no transcribed hits
+    off = chart.bgm_offset()
+    placed = np.array(sorted(chart.time_of(c.measure, c.pos) - off for c in chart.chips
+                             if c.channel in dtx.DRUM_CHANNELS and c.value not in rolls))
     src = np.array(sorted(t for t, p in hits if p in ADTOF_TO_CH))
     if len(placed) and len(src):
         j = np.clip(np.searchsorted(src, placed), 1, len(src) - 1)
@@ -1917,6 +2014,9 @@ if __name__ == "__main__":
                     help='new tempo section from this audio second, e.g. "58.22=170" (fit nearby)')
     ap.add_argument("--crash", default="",
                     help='crash hints: "39" = crash on beat 1 of measure 39, "4*" = every hi-hat of measure 4')
+    ap.add_argument("--cymbal-roll", default="",
+                    help='cymbal rolls the transcriber can\'t see: "9.5; 63-66; 112" (9.5 = second half '
+                         'of measure 9); 16ths CY/LC, volume following the cymbal stem')
     ap.add_argument("--snare-24", action="store_true",
                     help="groove bars with snares on all four beats keep only beats 2 and 4")
     ap.add_argument("--backbeat", default="",
@@ -1931,7 +2031,8 @@ if __name__ == "__main__":
           a.bars, a.tempo_at, a.max_bpm, a.backbeat, a.half, a.kick_check, a.beat_grid,
           a.kit, a.snare_match, a.volume, a.dynamics, a.preview, a.preimage, a.dlevel, a.ride_foot,
           a.merge, a.groove, a.swing_hats, a.tempo_from, a.crash, a.snare_24,
-          a.score, a.score_first, a.video, a.bpm, a.game_style, a.grid_from)
+          a.score, a.score_first, a.video, a.bpm, a.game_style, a.grid_from,
+          a.cymbal_roll)
     # the options this chart was made with, so a rebuild (e.g. from the app) can repeat them
     meta = a.out_dir / "autochart.json"
     info = json.loads(meta.read_text())

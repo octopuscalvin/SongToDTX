@@ -42,6 +42,10 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   attack test compares noise.)
 - Add MV: the video offset is the one most matching windows agree on; with a different edit a
   median of all windows could land on no real offset.
+- Cymbal rolls (`--cymbal-roll "9.5; 63-66; 114.5-115.5"`): a roll or soft swell on the cymbals that
+  has no strokes the transcriber can hear is written as 16ths, right cymbal on the 8ths and left
+  cymbal between, with a volume per half bar that follows how loud the cymbals are (a swell from
+  silence steps up). Stretches where the cymbals keep sounding with no notes are listed for checking.
 - Octopus app icon (`app\icon.png`, `app\icon.ico`): browser tab, installer, Start menu and desktop
   shortcuts.
 

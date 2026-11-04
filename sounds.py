@@ -157,6 +157,10 @@ def dress(notes, kit: dict, parts: dict[str, Path] | None, kit_file: Path | None
             p, v, _ = per_note[id(n)]
             share = next(s for lim, s in TIERS if db.get(id(n), 0.0) >= lim)
             per_note[id(n)] = (p, max(int(round(v * share)), 1), "")
+    for n in notes:   # a note at part of its lane's volume (a soft cymbal roll) gets its own id
+        if getattr(n, "vol", 1.0) != 1.0:
+            p, v, _ = per_note[id(n)]
+            per_note[id(n)] = (p, max(int(round(v * n.vol)), 1), "")
     # wav ids: the default kit keeps its KIT ids, anything else gets new ones
     ids: dict[tuple[Path, int, str], str] = {}
     for ch, (wid, f) in kit.items():
