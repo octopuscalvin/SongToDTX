@@ -211,7 +211,8 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
       <div id="scroller" tabindex="0"><canvas id="cv"></canvas><div id="spacer"></div></div>
       <div class="keys">Click a note to select it, <kbd>Shift</kbd>+click to add or remove notes from the selection, drag on empty space to box-select.
         Drag notes to move them (up/down = timing, left/right = lane). <kbd>↑</kbd><kbd>↓</kbd> move by one snap step, <kbd>←</kbd><kbd>→</kbd> change lane,
-        double-click to add a note, <kbd>Del</kbd> removes, <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo, <kbd>Space</kbd> play / stop.</div>
+        double-click to add a note, <kbd>Del</kbd> removes,
+        <b>open hi-hat:</b> double-click a HH note or select HH notes and press <kbd>O</kbd> (closed &harr; open; open hats have a dot), <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo, <kbd>Space</kbd> play / stop.</div>
     </div>
     <div>
       <div class="spread" style="margin-bottom:8px"><b style="font-size:13px">Check these measures</b><span class="hint" id="flagCount"></span></div>
@@ -700,8 +701,15 @@ window.addEventListener('mouseup', () => {
   const d = E.drag; E.drag = null; if (!d) return;
   if (d.kind === 'move' && (d.dt || d.dl)) moveSel(d.dt, d.dl); else draw();
 });
+function toggleOpen(ids) {   // hi-hat notes: closed (11) <-> open (18)
+  const hats = E.notes.filter(n => ids.has(n.id) && (n.ch === '11' || n.ch === '18'));
+  if (!hats.length) return false; snapshot();
+  for (const n of hats) { n.ch = n.ch === '11' ? '18' : '11'; n.wav = E.chart.lane_wav[n.ch] || n.wav; }
+  setDirty(true); draw(); hitSound(hats[0]); return true;
+}
 cv.addEventListener('dblclick', e => {
-  if (!E.chart) return; const [px, py] = mousePos(e); if (hitNote(px, py)) return;
+  if (!E.chart) return; const [px, py] = mousePos(e), hit = hitNote(px, py);
+  if (hit) { toggleOpen(new Set([hit.id])); return; }
   const li = LANES.findIndex(l => px >= l.x && px < l.x + l.w); if (li < 1) return;
   const step = TPB / +$('snap').value, m = measureOf(tickOfY(py)), rel = Math.round((tickOfY(py) - E.mStart[m]) / step) * step;
   const tk = Math.min(E.mStart[m] + rel, E.totalTicks - 1), ch = LANES[li].ch[0];
@@ -718,6 +726,7 @@ sc.addEventListener('keydown', e => {
   if (k) { e.preventDefault(); moveSel(...k); }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); snapshot(); E.notes = E.notes.filter(n => !E.sel.has(n.id)); E.sel.clear(); setDirty(true); draw(); }
   if (e.key === 'Escape') { E.sel.clear(); draw(); }
+  if (e.key.toLowerCase() === 'o' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); toggleOpen(E.sel); }
 });
 function gcd(a, b) { while (b) [a, b] = [b, a % b]; return a; }
 function chipsOut() {

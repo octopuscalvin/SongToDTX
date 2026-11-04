@@ -434,6 +434,71 @@ def verify_kick_runs(notes: list[Note], drums: Path, bpms: np.ndarray, bar_start
     return [n for n in notes if id(n) not in drop]
 
 
+KICK_ROLL_FLOOR = -27.0   # dB: the kick stem's low end never drops under this (vs the strong kicks) through a roll beat
+KICK_ROLL_PULSE = 0.18    # ... and pulses at the 16th or 32nd rate (share of its mean level); an 808 tail doesn't
+KICK_ROLL_32_BPM = 150.0  # 32nd rolls only up to here; faster ones are written as 16ths
+
+
+def kick_rolls(notes: list[Note], drums: Path, T: np.ndarray, bpms: np.ndarray, bar_starts: list[int],
+               log: list[str]) -> list[Note]:
+    """A fast double-bass roll under loud cymbals blurs into one long rumble: ADTOF keeps only the
+    kicks that line up with the snare, and the kick stem shows no separate beater clicks. Its low
+    end (30-150 Hz) gives the roll away: through the beat it never drops far under the song's
+    strong kicks (ordinary beats fall 35 dB+ between kicks) and it pulses at the roll's rate.
+    Such a beat gets the whole 16th or 32nd stream; double_kick then splits it between the feet."""
+    import librosa
+    kicks = [n for n in notes if n.ch == "13"]
+    if len(kicks) < 8:
+        return notes
+    y, sr = librosa.load(str(drum_parts(drums)["kick"]), sr=22050, mono=True)
+    S = np.abs(librosa.stft(y, n_fft=512, hop_length=64))
+    f = librosa.fft_frequencies(sr=sr, n_fft=512)
+    body = S[(f >= 30) & (f < 150)].mean(0) + 1e-9
+    fps = sr / 64
+    top = np.percentile([20 * np.log10(body[int(n.t * fps):int((n.t + 0.03) * fps) + 1].mean()) for n in kicks
+                         if int(n.t * fps) < len(body)], 90)
+    have = {n.q for n in notes if n.ch in ("13", "1C")}
+    triplets = {int(n.q) // 4 * 4 for n in notes if n.q.denominator not in (1, 2)}
+    found: dict[int, tuple[int, int]] = {}   # beat -> (bar, 1 for 16ths / 2 for 32nds)
+    for b in range(len(bar_starts) - 1):
+        for beat in range(bar_starts[b], bar_starts[b + 1] - 3, 4):
+            if beat + 4 >= len(T) or beat in triplets:
+                continue
+            env = body[max(int(T[beat] * fps), 0):min(int(T[beat + 4] * fps), len(body))]
+            if len(env) < 16 or 20 * np.log10(np.percentile(env, 10)) - top < KICK_ROLL_FLOOR:
+                continue
+            tt = np.arange(len(env)) / fps
+            step = (T[beat + 4] - T[beat]) / 4
+
+            def pulse(per):
+                return float(np.abs(np.mean((env - env.mean()) * np.exp(-2j * np.pi * tt / per))) / env.mean())
+            p16, p32 = pulse(step), pulse(step / 2)
+            if max(p16, p32) < KICK_ROLL_PULSE:
+                continue
+            found[beat] = (b, 2 if p32 > p16 and bpms[min(beat, len(bpms) - 1)] <= KICK_ROLL_32_BPM else 1)
+    # a roll lasts 2+ beats; one rumbling beat alone is as often a big ringing hit, so it is only flagged
+    roll = {q for q in found if q - 4 in found or q + 4 in found}
+    out, bars = list(notes), set()
+    for beat in sorted(roll):
+        b, sub = found[beat]
+        for k in range(4 * sub):
+            q = Fraction(beat) + Fraction(k, sub)
+            if q not in have:
+                i = int(q)
+                out.append(Note(q, "13", float(T[i] + (T[i + 1] - T[i]) * float(q - i))))
+                have.add(q)
+                bars.add(b + 1)
+    if bars:
+        print(f"      kick rolls: {len(out) - len(notes)} kicks filled in under a rumbling kick stem")
+        log.append(f"fast kick rolls filled in (16ths / 32nds the transcriber blurred) in measures "
+                   f"{', '.join(f'{m:03d}' for m in sorted(bars))} - check the roll's start and end")
+    single = sorted({found[q][0] + 1 for q in found if q not in roll})
+    if single:
+        log.append(f"a single beat sounds like a short kick roll in measures {', '.join(f'{m:03d}' for m in single)}"
+                   f" - not filled in; add it if it is one")
+    return sorted(out, key=lambda n: (n.q, n.ch))
+
+
 HAT_MIN_RISE = 4.0     # dB: a real hat hit rises this much on the LarsNet hi-hat stem (6-16 kHz)
 HAT_MIN_LEVEL = -20.0  # dB under the song's strong hat hits (90th pct)
 
@@ -1214,14 +1279,67 @@ def busy_stream_snares(notes: list[Note], bar_starts: list[int], bpms: np.ndarra
 
 
 HH_OPEN_LEVEL = -13.0   # dB vs the song's strong hat attacks (90th pct): still ringing = open
+HAT_STREAM = 5          # hand hats on this many of a 4/4 bar's 8 eighths make it an 8th hat-groove bar
+HAT_ALT_GAP = 8.0       # dB between the beats' and the "&"s' median ring before a phrase is open-close-open-close
+HAT_SHUT = -22.0        # ... and the closed one must really be shut (a foot-closed hat dies 22-40 dB under)
 
 
-def open_hihats(notes: list[Note], drums: Path) -> list[Note]:
+def hat_phrases(hh: list[Note], ring: dict[int, float], notes: list[Note], bar_starts: list[int],
+                log: list[str] | None = None) -> dict[int, bool]:
+    """Rule: through an 8th hi-hat groove a drummer keeps one sound - all closed, all open, or one
+    open one closed - never a random mix. Each hit's own ring is noisy (a half-open chorus rings
+    right around the open / closed split), so consecutive groove bars are one phrase and the
+    phrase's median ring decides: in 2+ bars, the beats and the "&"s apart by HAT_ALT_GAP, the louder
+    one open and the other really shut (HAT_SHUT) -> open on the louder one; else all open or all closed
+    (a half-damped "&" in an open groove is still the open groove). In a closed phrase an
+    open hat on a bar's last 8th before a crash stays open. Open-close phrases are listed in the
+    log: all open is as likely what a charter wants there. Returns open / closed per hat."""
+    bs = list(bar_starts)
+    crash_at = {n.q for n in notes if n.ch in ("16", "1A")}
+    by_bar: dict[int, list[Note]] = {}
+    for n in hh:
+        b = bisect.bisect_right(bs, int(n.q)) - 1
+        if 0 <= b < len(bs) - 1 and bs[b + 1] - bs[b] == 16 and n.q.denominator == 1 and (n.q - bs[b]) % 2 == 0:
+            by_bar.setdefault(b, []).append(n)
+    groove = sorted(b for b, ns in by_bar.items() if len(ns) >= HAT_STREAM)
+    phrases: list[list[int]] = []
+    for b in groove:
+        if phrases and phrases[-1][-1] == b - 1:
+            phrases[-1].append(b)
+        else:
+            phrases.append([b])
+    decided: dict[int, bool] = {}
+    for ph in phrases:
+        ns = [n for b in ph for n in by_bar[b]]
+        on = [ring[id(n)] for n in ns if id(n) in ring and (n.q - bs[ph[0]]) % 4 == 0]
+        off = [ring[id(n)] for n in ns if id(n) in ring and (n.q - bs[ph[0]]) % 4 == 2]
+        if len(on) + len(off) < 4:
+            continue
+        m_on, m_off = (float(np.median(x)) if x else -99.0 for x in (on, off))
+        if len(ph) >= 2 and abs(m_on - m_off) >= HAT_ALT_GAP and min(m_on, m_off) <= HAT_SHUT and max(m_on, m_off) >= HH_OPEN_LEVEL:
+            pick = (lambda n, beat_open=m_on > m_off: ((n.q - bs[ph[0]]) % 4 == 0) == beat_open)
+            if log is not None:
+                log.append(f"hi-hats written {'open on the beat, closed on the &' if m_on > m_off else 'closed on the beat, open on the &'}"
+                           f" in measures {ph[0] + 1:03d}-{ph[-1] + 1:03d} (the & and the beat ring differently)"
+                           f" - or all open / all closed?")
+        else:
+            all_open = float(np.median(on + off)) >= HH_OPEN_LEVEL
+            pick = (lambda n, o=all_open: o)
+        for b in ph:
+            for n in by_bar[b]:
+                keep = (n.q - bs[b] == 14 and bs[b + 1] in crash_at and ring.get(id(n), -99.0) >= HH_OPEN_LEVEL)
+                decided[id(n)] = pick(n) or keep
+    return decided
+
+
+def open_hihats(notes: list[Note], drums: Path, bar_starts: list[int] | None = None,
+                log: list[str] | None = None) -> list[Note]:
     """Open / closed hi-hat (an open hat, then the closing hit = closed HH + left-foot pedal
     together). On the LarsNet hi-hat stem, just before the next hat hit a closed hat has died
     away (22-40 dB under a strong attack) while an open one still rings (within ~10 dB) -
     a clean recording splits at about -13 dB. Open hats -> 18; the first closed hat after
-    open ones closes them: 11 + pedal 1B."""
+    open ones closes them: 11 + pedal 1B. With the bars, 8th hat grooves get one pattern per
+    phrase (hat_phrases)."""
     import librosa
     hh = sorted((n for n in notes if n.ch == "11"), key=lambda n: n.q)
     if len(hh) < 8:
@@ -1236,10 +1354,12 @@ def open_hihats(notes: list[Note], drums: Path) -> list[Note]:
         i, j = int((t + a) * fps), int((t + b) * fps) + 1
         return float(20 * np.log10(E[max(i, 0):max(j, i + 1)].mean())) if i < len(E) else -200.0
     top = np.percentile([level(n.t, 0, 0.015) for n in hh], 90)
+    ring = {id(n): level(nxt.t, -0.04, -0.01) - top for n, nxt in zip(hh, hh[1:]) if 0.1 < nxt.t - n.t < 0.5}
+    decided = hat_phrases(hh, ring, notes, bar_starts, log) if bar_starts else {}
     out = list(notes)
     was_open = False
-    for n, nxt in zip(hh, hh[1:] + [None]):
-        is_open = nxt is not None and 0.1 < nxt.t - n.t < 0.5             and level(nxt.t, -0.04, -0.01) - top >= HH_OPEN_LEVEL
+    for n in hh:
+        is_open = decided.get(id(n), ring.get(id(n), -99.0) >= HH_OPEN_LEVEL)
         if is_open:
             n.ch = "18"
         elif was_open:
@@ -1689,6 +1809,7 @@ def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_che
         notes = crash_hints(notes, starts, T, crash)
     notes = verify_kick_runs(notes, drums, bpms, starts, tom_log, kick_check)
     notes = drop_silent(notes, drums, starts, tom_log)
+    notes = kick_rolls(notes, drums, T, bpms, starts, tom_log)
     notes = verify_hats(notes, drums, starts, tom_log)
     if ride_foot:
         notes = steady_foot_hats(ride_foot_hats(notes, drums, T, starts), starts)   # before the hand limit: those hats are feet
@@ -1696,7 +1817,7 @@ def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_che
     n_before = sum(n.ch != "1B" for n in notes)
     notes = limit_hands(notes)
     notes = double_kick(notes, starts, bpms)
-    notes = open_hihats(notes, drums)
+    notes = open_hihats(notes, drums, starts, tom_log)
     notes = left_foot_busy(notes)
     print(f"      playability: dropped {n_before - sum(n.ch != '1B' for n in notes)} 3rd-hand notes, "
           f"{sum(n.ch == '1C' for n in notes)} kicks moved to left pedal; "

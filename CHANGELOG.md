@@ -34,6 +34,13 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   artist from each folder's name and the jacket from a picture in that folder or the song's own art.
 - Tempo grid: a very short tempo section that the previous section's switch has already passed no
   longer crashes the build ("cannot unpack non-iterable NoneType").
+- Kick rolls: a fast double-bass roll that blurs into one rumble (the kick stem's low end never
+  drops through the beat and pulses at the 16th or 32nd rate) gets the whole 16th / 32nd stream,
+  split between the feet. Runs of 2+ beats only; a single such beat is listed instead.
+- Hi-hat phrases: consecutive 8th hi-hat groove bars keep one sound - all open, all closed, or open
+  and closed in turn (only when the closed ones are really shut; listed) - decided from the phrase's median ring
+  instead of hit by hit.
+- Editor: double-click a hi-hat note, or select hi-hats and press O, to switch closed / open.
 - Ride groove: in a bar with 6+ ride hits (right hand on the ride, left on the snare) a closed
   hi-hat is the foot: it becomes a hi-hat pedal chip (LP) and the measures are listed.
 - Silent drums: any note where the separated drum stem is silent (40 dB or more under the song's
