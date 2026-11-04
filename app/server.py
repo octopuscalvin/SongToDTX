@@ -109,7 +109,7 @@ def job_thread(job: dict):
                 (job["out"] / "job.json").write_text(json.dumps({"opts": o, "log": job["log"]}, default=str), encoding="utf-8")
                 return
             if mode == "mv":                          # music video onto an existing chart (add_mv.py)
-                code = run(job, [PY, HERE / "add_mv.py", o["chart"], o["url"], w])
+                code = run(job, [PY, HERE / "add_mv.py", o["chart"], o["url"], w] + (["--live"] if o.get("live") else []))
                 job["state"] = "done" if code == 0 else "failed"
                 if code:
                     job["error"] = (job["log"] or ["add_mv failed"])[-1]

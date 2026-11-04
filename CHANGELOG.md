@@ -49,6 +49,11 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   attack test compares noise.)
 - Add MV: the video offset is the one most matching windows agree on; with a different edit a
   median of all windows could land on no real offset.
+- Add MV, live take (`add_mv.py --live`, app: "Live take or another tempo"): a video whose music
+  runs at another, changing tempo (a live performance, a slower or faster version) is sped up and
+  slowed down moment by moment so its drummer's hits meet the chart's music. Both recordings' drum
+  hits are matched in 8 s windows; parts without drums follow the harmony and are listed by measure.
+  The result reports how close the hits land.
 - Cymbal rolls (`--cymbal-roll "9.5; 63-66; 114.5-115.5"`): a roll or soft swell on the cymbals that
   has no strokes the transcriber can hear is written as 16ths, right cymbal on the 8ths and left
   cymbal between, with a volume per half bar that follows how loud the cymbals are (a swell from

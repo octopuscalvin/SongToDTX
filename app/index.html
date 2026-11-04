@@ -149,10 +149,12 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
         <label>Chart folder</label><input type="text" id="mvChart" list="chartList" placeholder="pick a chart or paste its folder">
         <datalist id="chartList"></datalist>
         <label>Music video (YouTube link or video file)</label><input type="text" id="mvUrl" placeholder="https://www.youtube.com/watch?v=...">
+        <div class="check"><input type="checkbox" id="mvLive"><span>Live take or another tempo: fit the picture to the music moment by moment (slower)</span></div>
         <p class="hint">The app finds where the chart's music is inside the video, cuts the video's longer intro (or puts
           black in front if the video starts later) and starts the picture with the music. The chart is backed up first
           as <i>mstr.dtx.before_mv</i>. If the video is a different edit (an extra scene or a cut in the middle), it lists
-          the measures where the picture will be out of sync.</p>
+          the measures where the picture will be out of sync. For a live take or a slower / faster performance, tick
+          <i>Live take</i>: the picture is sped up and slowed down so the drummer's hits meet the chart's music.</p>
         <div class="row"><button class="btn" id="mvGo">Add MV to chart</button><span class="hint" id="mvStage"></span></div>
         <div class="err" id="mvErr"></div><div class="okmsg" id="mvOk"></div>
       </div>
@@ -405,7 +407,7 @@ $('cancel').onclick = () => job && api('/api/cancel', {id: job});
 api('/api/charts').then(r => $('chartList').innerHTML = r.charts.map(c => `<option value="${c.path.replace(/"/g, '&quot;')}">${c.name}</option>`).join('')).catch(() => {});
 $('mvGo').onclick = async () => {
   $('mvErr').textContent = $('mvOk').textContent = '';
-  const o = {mode: 'mv', chart: $('mvChart').value.trim(), url: $('mvUrl').value.trim()};
+  const o = {mode: 'mv', chart: $('mvChart').value.trim(), url: $('mvUrl').value.trim(), live: $('mvLive').checked};
   if (!o.chart) { $('mvErr').textContent = 'Pick a chart first.'; return; }
   if (!o.url) { $('mvErr').textContent = 'Enter the video link or file.'; return; }
   let id; try { id = (await api('/api/start', o)).id; } catch (e) { $('mvErr').textContent = e.message; return; }

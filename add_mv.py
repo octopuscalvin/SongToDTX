@@ -4,9 +4,12 @@
     over the whole song, so a different edit or an extra scene is noticed and reported by measure),
   * cut the video's extra intro (or put black in front when the video starts later than the BGM),
     convert it to WMV2 without sound and start it with the BGM chip (#AVI01, channel 54).
+With --live the video's music may run at another, changing tempo (a live take, a slower or
+faster performance): the picture is fitted to the BGM moment by moment from both recordings'
+drum hits (live_mv.py) instead of one cut and stretch.
 The chart is backed up once to <name>.dtx.before_mv (not .dtx, or DTXMania lists it as a song); earlier #AVI lines and channel 54 are replaced.
 
-usage: add_mv.py <chart folder or .dtx> <video URL|file> <work dir>"""
+usage: add_mv.py <chart folder or .dtx> <video URL|file> <work dir> [--live]"""
 import argparse, re, shutil, subprocess, sys
 from pathlib import Path
 
@@ -131,6 +134,8 @@ def main():
     ap.add_argument("chart", type=Path)
     ap.add_argument("video")
     ap.add_argument("work", type=Path)
+    ap.add_argument("--live", action="store_true",
+                    help="the video's music runs at another, changing tempo: fit the picture moment by moment")
     a = ap.parse_args()
     path = a.chart if a.chart.suffix.lower() == ".dtx" else (
         a.chart / "mstr.dtx" if (a.chart / "mstr.dtx").exists() else next(a.chart.glob("*.dtx"), None))
@@ -141,6 +146,9 @@ def main():
     print("[1/3] getting the video ...", flush=True)
     video = fetch(a.video, a.work)
     bgm, measure, slot, slots = bgm_of(path)
+    if a.live:
+        live(path, video, bgm, measure, slot, slots, a.work)
+        return
 
     print("[2/3] matching the video's sound to the chart's BGM ...", flush=True)
     win = windows(onsets(mono(video, a.work / "mv_m.wav")), onsets(mono(bgm, a.work / "bgm_m.wav")))
@@ -192,6 +200,33 @@ def main():
     what = (f"cut the first {d:.2f} s of the video" if d > 0.0005 else
             f"put {-d:.2f} s of black before the video" if d < -0.0005 else "no cut needed")
     print(f"MV added to {path}: {what}; it starts with the BGM at measure {measure:03d}")
+
+
+def live(path: Path, video: Path, bgm: Path, measure: int, slot: int, slots: int, work: Path) -> None:
+    import live_mv
+    print("[2/3] fitting the video to the music moment by moment ...", flush=True)
+    audio = work / "mv_audio.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ac", "2", "-ar", "44100", str(audio)],
+                   check=True)
+    tmp = work / NAME
+    med, share, loose, speed = live_mv.fit(bgm, video, audio, tmp, FRAME)
+    tempo = (1 - 1 / speed) * 100   # + = the video's music is slower
+    print(f"      the video's music is {abs(tempo):.1f}% {'slower' if tempo > 0 else 'faster'} than the chart's "
+          f"(and wanders): fitted; drum hits {med:.0f} ms apart (median), {share:.0%} within 40 ms")
+    ch = dtx.read_dtx(path)
+    start = ch.bgm_offset()
+    if loose:
+        print("OUT OF SYNC: no drums to line up at measure "
+              + ", ".join(f"{measure_at(ch, start + a):03d}-{measure_at(ch, start + b):03d}" for a, b in loose)
+              + " (the picture follows the music only there)")
+    if share < 0.5:
+        print("OUT OF SYNC: few drum hits line up - is this the same song and arrangement?")
+    shutil.copy2(tmp, path.parent / NAME)
+    backup = path.with_name(path.name + ".before_mv")
+    if not backup.exists():
+        shutil.copy2(path, backup)
+    attach(path, NAME, measure, slot, slots)
+    print(f"MV added to {path}: fitted to the music (live take); it starts with the BGM at measure {measure:03d}")
 
 
 if __name__ == "__main__":
