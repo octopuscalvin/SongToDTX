@@ -3,7 +3,10 @@ box.def per level. Jacket: the album folder's picture (cover/folder/front first,
 else Images\ or Scans\), else the art embedded in a song file, else none. Every song is decoded
 by ffmpeg first (malformed mp3 headers can fool libsndfile). Only top-level audio is
 used (some albums carry an mp3\ copy of the flacs). Title/artist from tags, else the file
-name. Finished albums inside an editing\ folder move to editing\completed\. summary.tsv has the seconds each song took."""
+name. A folder of song folders named "Title - Artist" (no audio at its top) is charted as one box,
+title and artist from each folder's name, jacket from a picture in it or the song's own art.
+Zip / 7z / rar archives are unpacked first. Finished albums inside an editing\ folder (or their
+archive) move to editing\completed\. summary.tsv has the seconds each song took."""
 import json, re, shutil, subprocess, sys, time
 from pathlib import Path
 
@@ -11,6 +14,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import config  # noqa: E402
+import archive  # noqa: E402
 ED = config.EDITING_DIR
 dest = Path(sys.argv[1])
 AUDIO = (".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".wma", ".ogg")
@@ -34,6 +38,25 @@ def tags(f: Path) -> dict:
     return t
 
 
+def art(f: Path, out: Path) -> Path | None:
+    """Cover art inside a song file."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(f), "-an", "-frames:v", "1", str(out)])
+    return out if out.exists() and out.stat().st_size > 1000 else None
+
+
+def song_folders(album: Path) -> tuple[list[Path], dict]:
+    """One song per sub-folder; "Title - Artist" folder names give title and artist."""
+    songs, named = [], {}
+    for d in sorted(p for p in album.iterdir() if p.is_dir()):
+        a = sorted(p for p in d.iterdir() if p.suffix.lower() in AUDIO)
+        if a:
+            songs.append(a[0])
+            title, _, artist = d.name.rpartition(" - ")
+            named[a[0]] = (title, artist) if title else (d.name, None)
+    return songs, named
+
+
 def jacket(album: Path, songs: list[Path], info: dict) -> Path | None:
     pics = [p for d in (album, album / "Images", album / "Scans") if d.is_dir()
             for p in sorted(d.iterdir()) if p.suffix.lower() in PICS]
@@ -41,23 +64,23 @@ def jacket(album: Path, songs: list[Path], info: dict) -> Path | None:
     if pref or pics:
         return (pref or pics)[0]
     for f in songs:
-        if info[f]["_art"]:
-            out = work / safe(album.name) / "embedded_cover.jpg"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(f), "-an", "-frames:v", "1", str(out)])
-            if out.exists() and out.stat().st_size > 1000:
-                return out
+        if info[f]["_art"] and (out := art(f, work / safe(album.name) / "embedded_cover.jpg")):
+            return out
     return None
 
 
 t_all = time.time()
-albums = [Path(a) for a in sys.argv[2:]] or sorted(p for p in ED.iterdir() if p.is_dir() and p.name != "completed")
-for album in albums:
-    songs = sorted(p for p in album.iterdir() if p.suffix.lower() in AUDIO)
+albums = [Path(a) for a in sys.argv[2:]] or sorted(p for p in ED.iterdir() if p.name != "completed" and
+                                                   (p.is_dir() or archive.is_archive(p)))
+for src in albums:
+    album = archive.unpack(src, config.CACHE / "unpacked") if archive.is_archive(src) else src
+    songs, named = sorted(p for p in album.iterdir() if p.suffix.lower() in AUDIO), {}
+    if not songs:
+        songs, named = song_folders(album)
     if not songs:
         continue
     info = {f: tags(f) for f in songs}
-    cover = jacket(album, songs, info)
+    cover = None if named else jacket(album, songs, info)
     box = dest / safe(album.name)
     box.mkdir(parents=True, exist_ok=True)
     (box / "box.def").write_text(f"#TITLE: {album.name}\n", encoding="cp932", errors="replace")
@@ -65,7 +88,7 @@ for album in albums:
     t_album, failed, seen = time.time(), 0, set()
     for f in songs:
         t = info[f]
-        title = t.get("title") or re.sub(r"^\s*\d+\s*[-.]?\s*", "", f.stem).strip() or f.stem
+        title = (named.get(f) or [None])[0] or t.get("title") or re.sub(r"^\s*\d+\s*[-.]?\s*", "", f.stem).strip() or f.stem
         if title in seen:   # disc 2 can repeat a title
             title += f" (Disc {t.get('disc', '2').split('/')[0]})"
         seen.add(title)
@@ -78,10 +101,14 @@ for album in albums:
         if not wav.exists():
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(f), "-vn", str(wav)])
         out = work / safe(album.name) / name
+        artist = (named.get(f) or [None, None])[1] or t.get("artist") or t.get("album_artist") or "Unknown"
         cmd = [sys.executable, str(HERE / "autochart.py"), str(wav), str(out), "--title", title,
-               "--artist", t.get("artist") or t.get("album_artist") or "Unknown"]
-        if cover:
-            cmd += ["--preimage", str(cover)]
+               "--artist", artist, "--dlevel", "680"]
+        pic = cover
+        if f in named:      # a song folder's own picture, else the song's own art
+            pic = next((p for p in sorted(f.parent.iterdir()) if p.suffix.lower() in PICS), None) or                 (info[f]["_art"] and art(f, work / safe(album.name) / f"{name}_cover.jpg")) or None
+        if pic:
+            cmd += ["--preimage", str(pic)]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=HERE)
         log = r.stdout + r.stderr
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +125,6 @@ for album in albums:
             fh.write("\t".join(row) + "\n")
         print("   " + " | ".join(row[1:]), flush=True)
     print(f"   album time {time.time() - t_album:.0f} s", flush=True)
-    if not failed and ED != Path() and album.parent == ED:
-        shutil.move(str(album), str(ED / "completed" / album.name))
+    if not failed and ED != Path() and src.parent == ED:
+        shutil.move(str(src), str(ED / "completed" / src.name))
 print(f"ALL DONE in {time.time() - t_all:.0f} s", flush=True)

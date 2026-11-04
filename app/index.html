@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Song to DTX</title>
+<link rel="icon" type="image/png" href="/icon.png"><link rel="icon" href="/favicon.ico" sizes="any">
 <style>
 :root{--bg:#1c1c1e;--card:#26262a;--field:#1f1f22;--line:#3a3a40;--line2:#55555c;--text:#ececef;--muted:#9a9aa3;
   --accent:#4f8ff7;--accent-bg:#1e3354;--warn:#f0b44c;--warn-bg:#3d2f14;--ok:#5cc98a;--ok-bg:#163525;--bad:#f07070;--r:8px}
@@ -77,7 +78,49 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
 .grid2 span{color:var(--muted);font-size:13px}
 .grid2 input{width:100%}
 .ro{background:none!important;border-style:dashed!important;color:var(--muted)!important}
+/* shown over the editor while a chart is being made; app/loading.gif (or .webp/.png/.svg) replaces the drum bars */
+#editCard{position:relative}
+#busy{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:color-mix(in srgb,var(--card) 82%,transparent);border-radius:12px;backdrop-filter:blur(2px)}
+#busy img{max-width:220px;max-height:220px}
+.beat{display:flex;align-items:flex-end;gap:7px;height:64px}
+.beat i{width:12px;border-radius:4px;background:var(--accent);animation:hit 1s ease-in-out infinite}
+.beat i:nth-child(2){animation-delay:-.8s}.beat i:nth-child(3){animation-delay:-.6s}
+.beat i:nth-child(4){animation-delay:-.4s}.beat i:nth-child(5){animation-delay:-.2s}
+@keyframes hit{0%,100%{height:14px;opacity:.5}50%{height:64px;opacity:1}}
+#busyTxt{font-size:13px;color:var(--text)}
+@media (prefers-reduced-motion:reduce){.beat i{animation-duration:3s}}
+.trimbox{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.trimbox .row{margin-top:8px;font-size:13px;color:var(--muted)}
+.trimbox input[type=number]{width:76px}
+.trimbox input:disabled{opacity:.45}
 @media (max-width:980px){.two,.edit{grid-template-columns:1fr}main{padding:16px}}
+#octo{position:fixed;right:22px;bottom:14px;z-index:50;pointer-events:none}
+#octo .body{position:relative;width:118px;height:110px;cursor:pointer;pointer-events:auto;border:0;padding:0;background:none;
+  animation:octoFloat 3.2s ease-in-out infinite;-webkit-tap-highlight-color:transparent}
+#octo .body:focus-visible{outline:2px dashed #2bd98f;outline-offset:4px;border-radius:50%}
+#octo .body img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 6px 8px rgba(0,0,0,.35))}
+#octo .body img.shut{visibility:hidden}
+#octo.blink .body img.shut{visibility:visible}
+#octo.blink .body img.wide{visibility:hidden}
+#octo .body:active{animation-play-state:paused;transform:scale(.94)}
+@keyframes octoFloat{0%,100%{transform:translateY(0) rotate(-1.5deg)}50%{transform:translateY(-12px) rotate(1.5deg)}}
+#octo .say{position:absolute;right:128px;bottom:52px;width:max-content;max-width:290px;min-width:120px;padding:11px 14px 11px 16px;
+  font:13px/1.55 Consolas,"Cascadia Mono","Microsoft JhengHei","Yu Gothic UI",monospace;color:#8dffc8;letter-spacing:.2px;
+  background:repeating-linear-gradient(0deg,rgba(43,217,143,.05) 0 1px,transparent 1px 3px),linear-gradient(135deg,#06291c,#03170f);
+  border:1px solid #2bd98f;box-shadow:0 0 12px rgba(43,217,143,.35),inset 0 0 14px rgba(43,217,143,.12);
+  clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);
+  text-shadow:0 0 6px rgba(43,217,143,.55);opacity:0;transform:translateY(6px) scale(.97);transform-origin:right bottom;
+  transition:opacity .25s,transform .25s}
+#octo .say::before{content:"> OCTO.SAY";display:block;font-size:10px;letter-spacing:1.5px;color:#2bd98f;opacity:.75;margin-bottom:3px}
+#octo .say::after{content:"";display:inline-block;width:7px;height:13px;margin-left:3px;vertical-align:-2px;background:#8dffc8;animation:octoCur 1s steps(1) infinite}
+#octo .tail{position:absolute;right:112px;bottom:66px;width:18px;height:2px;background:#2bd98f;box-shadow:0 0 8px #2bd98f;
+  opacity:0;transition:opacity .25s;transform:rotate(18deg);transform-origin:right center}
+#octo.talk .say{opacity:1;transform:none}
+#octo.talk .tail{opacity:1}
+@keyframes octoCur{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){#octo .body{animation:none}}
+@media (max-width:600px){#octo .body{width:84px;height:78px}#octo .say{right:92px;bottom:36px;max-width:min(240px,calc(100vw - 130px))}#octo .tail{right:78px;bottom:48px}}
 </style>
 </head>
 <body>
@@ -94,8 +137,8 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
       <button class="tab" data-p="open">Existing chart</button>
     </div>
     <div class="pane on" id="p-file">
-      <div class="drop" id="drop"><b>Drop a song here</b> or click to browse<br><span class="hint">mp3, flac, wav, m4a, ogg, aiff</span></div>
-      <input type="file" id="fileIn" accept="audio/*,.flac,.m4a,.aiff" hidden>
+      <div class="drop" id="drop"><b>Drop a song here</b> or click to browse<br><span class="hint">mp3, flac, wav, m4a, ogg, aiff, or a zip / 7z / rar</span></div>
+      <input type="file" id="fileIn" accept="audio/*,.flac,.m4a,.aiff,.zip,.7z,.rar" hidden>
       <div class="hint" id="fileName" style="margin-top:8px"></div>
     </div>
     <div class="pane" id="p-youtube">
@@ -120,7 +163,11 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
       <p class="hint">The app finds the score pages and the timing. Reading the notes from the pages into score.txt is still done by Claude, then press Generate again.</p>
     </div>
     <div class="pane" id="p-batch">
-      <label>Album folders, one per line</label><textarea id="bFolders" placeholder="D:\Music\My album"></textarea>
+      <div class="drop" id="bDrop"><b>Drop a zip / 7z / rar of songs</b> or click to browse<br>
+        <span class="hint">album folders, or one folder per song named "Title - Artist"</span></div>
+      <input type="file" id="bIn" accept=".zip,.7z,.rar" hidden>
+      <div class="hint" id="bName" style="margin-top:8px"></div>
+      <label>Album folders or archives, one per line</label><textarea id="bFolders" placeholder="D:\Music\My album"></textarea>
       <label>Save into</label><input type="text" id="bDest">
     </div>
     <div class="pane" id="p-open">
@@ -142,7 +189,9 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
   </section>
 </div>
 
-<section class="card">
+<section class="card" id="editCard">
+  <div id="busy" hidden><img id="busyImg" alt="" hidden><div class="beat" id="busyBeat"><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="busyTxt">Making the chart ...</div></div>
   <div class="spread"><h2 style="margin:0"><span class="num">3</span>Check and edit the chart</h2>
     <div class="row"><span class="hint" id="dirty"></span><button class="btn sm" id="revert" hidden>Back to the tool's chart</button><button class="btn sm" id="saveEdits" disabled>Save edits</button></div></div>
   <div class="edit" style="margin-top:12px">
@@ -170,6 +219,12 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
       <label>Meter hints (optional), then rebuild</label>
       <div class="row"><input type="text" id="hints" placeholder="76=78 78 78 44 x4; 92=44" style="flex:1"><button class="btn" id="rebuild">Rebuild</button></div>
       <p class="hint">"92=78" makes measure 092 a 7/8 bar and 4/4 resumes after it. "92=44" forces it back to a normal 4/4 bar. Rebuilding makes a new chart, so hand edits on this one are not carried over.</p>
+      <div class="trimbox">
+        <label class="check" style="margin:0"><input type="checkbox" id="trimOn"><span>Trim song into short cut</span></label>
+        <div class="row">From bar<input type="number" id="trimA" min="1" disabled>to bar<input type="number" id="trimB" min="1" disabled>
+          <button class="btn" id="trimGo" disabled>Trim</button></div>
+        <p class="hint" id="trimHint">The "to" bar holds the last notes. The music then plays 3 more bars and fades out, and the chart ends there.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -215,6 +270,7 @@ const api = (u, body) => fetch(u, body === undefined ? {} : {method: 'POST', hea
 const fileUrl = p => '/api/file?path=' + encodeURIComponent(p);
 const pad3 = m => String(m).padStart(3, '0');
 
+(() => { const im = $('busyImg'); im.onload = () => { im.hidden = false; $('busyBeat').hidden = true; }; im.src = '/loading'; })();
 fetch('/api/defaults').then(r => r.json()).then(d => {
   $('bDest').value = d.dest_batch; $('ver').textContent = 'v' + d.version; $('dtxDir').value = d.dtxmania; $('dtxBox').hidden = d.dtxmania_ok;
   if (d.last_job) start(d.last_job); })
@@ -228,7 +284,7 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 
 async function upload(file) {
   const r = await fetch('/api/upload', {method: 'POST', headers: {'X-Name': encodeURIComponent(file.name)}, body: file});
-  const j = await r.json(); if (!r.ok) throw new Error(j.error); return j.path;
+  const j = await r.json(); if (!r.ok) throw new Error(j.error); return j;
 }
 function dropZone(el, input, onFile) {
   el.onclick = () => input.click();
@@ -239,12 +295,34 @@ function dropZone(el, input, onFile) {
 }
 dropZone($('drop'), $('fileIn'), async f => {
   $('fileName').textContent = 'Loading ' + f.name + ' ...'; $('srcErr').textContent = '';
-  try { filePath = await upload(f); $('fileName').textContent = f.name + ' ready'; $('fTitle').value = ''; $('fArtist').value = ''; }
-  catch (e) { $('srcErr').textContent = "Couldn't load the file: " + e.message; }
+  try {
+    const j = await upload(f);
+    if (j.folder) { addBatch(j, f.name); document.querySelector('.tab[data-p=batch]').click(); $('fileName').textContent = ''; return; }
+    filePath = j.path; $('fileName').textContent = (j.name || f.name) + ' ready'; $('fTitle').value = ''; $('fArtist').value = '';
+  } catch (e) { $('srcErr').textContent = "Couldn't load the file: " + e.message; }
+});
+/* an archive with several songs goes to the batch list */
+function addBatch(j, name) {
+  const v = $('bFolders').value.trim();
+  $('bFolders').value = (v ? v + '\n' : '') + j.folder;
+  $('bName').textContent = name + ': ' + j.songs + ' songs unpacked, added to the list below';
+}
+dropZone($('bDrop'), $('bIn'), async f => {
+  $('bName').textContent = 'Unpacking ' + f.name + ' ...'; $('srcErr').textContent = '';
+  try { const j = await upload(f); if (j.folder) addBatch(j, f.name); else { $('bName').textContent = f.name + ' has one song: use the Song file tab'; } }
+  catch (e) { $('bName').textContent = ''; $('srcErr').textContent = "Couldn't unpack " + f.name + ': ' + e.message; }
 });
 dropZone($('jacket'), $('jacketIn'), async f => {
-  try { jacketPath = await upload(f); showJacket(jacketPath); } catch (e) { $('saveErr').textContent = "Couldn't load the picture: " + e.message; }
+  try { jacketPath = (await upload(f)).path; auto.delete('jacket'); showJacket(jacketPath); } catch (e) { $('saveErr').textContent = "Couldn't load the picture: " + e.message; }
 });
+/* song info the page filled in from the last chart (not typed): dropped before the next song, so it gets its own */
+const auto = new Set(), AUTO_FIELDS = ['fTitle', 'fArtist', 'fComment', 'fPrev'];
+AUTO_FIELDS.forEach(k => $(k).addEventListener('input', () => auto.delete(k)));
+function clearAuto() {
+  AUTO_FIELDS.forEach(k => { if (auto.has(k)) $(k).value = ''; });
+  if (auto.has('jacket')) { jacketPath = ''; showJacket(''); }
+  auto.clear();
+}
 function showJacket(p) { $('jacket').innerHTML = p ? `<img alt="jacket" src="${fileUrl(p)}">` : 'Jacket preview'; }
 
 function sourceOpts() {
@@ -267,15 +345,59 @@ $('opGo').onclick = async () => {
 $('go').onclick = async () => {
   if (mode === 'open') return $('opGo').onclick();
   $('srcErr').textContent = $('genErr').textContent = '';
-  let o; try { o = sourceOpts(); } catch (e) { $('srcErr').textContent = e; return; }
   if (!confirmLoseEdits()) return;
+  clearAuto();
+  let o; try { o = sourceOpts(); } catch (e) { $('srcErr').textContent = e; return; }
   if ($('hints').value.trim()) o.hints = $('hints').value.trim();
   try { start((await api('/api/start', o)).id); } catch (e) { $('genErr').textContent = e.message; }
 };
 $('rebuild').onclick = async () => {
   if (!job) { $('genErr').textContent = 'Generate a chart first.'; return; }
   if (!confirmLoseEdits()) return;
+  if (info && info.existing && !confirm("Rebuilding makes a new chart from this chart's own song (BGM), with the settings it was made with and your meter hints. " +
+      'It is saved as a new version in AutoChart; this chart stays as it is. Continue?')) return;
   try { start((await api('/api/rebuild', {id: job, opts: {hints: $('hints').value.trim()}})).id); } catch (e) { $('genErr').textContent = e.message; }
+};
+/* short version: bars A..B of the chart in the editor, then 3 bars of fade (trim.py); the full version stays */
+const TRIM_HINT = $('trimHint').textContent, SHORT = ' (Short ver.)';
+function trimState() {
+  const on = $('trimOn').checked, a = +$('trimA').value, b = +$('trimB').value, full = info && (info.trimmed ? null : info);
+  $('trimA').disabled = $('trimB').disabled = !on || !info;
+  let msg = TRIM_HINT, ok = false;
+  if (on && !info) msg = 'Generate a chart first.';
+  else if (on && $('trimA').value !== '' && $('trimB').value !== '') {
+    const last = full ? full.bars : null;
+    if (a < 1 || b <= a) msg = 'The "to" bar must come after the "from" bar.';
+    else if (last && b > last) msg = `The chart ends at bar ${pad3(last)}.`;
+    else {
+      ok = true;
+      const bt = full && full.bar_times, s = bt ? bt[Math.min(b + 4, bt.length - 1)] - bt[a] : 0;
+      msg = `Keeps bars ${pad3(a)}-${pad3(b)}, then 3 bars of fade` + (s > 0 ? ` (about ${Math.floor(Math.round(s) / 60)}:${String(Math.round(s) % 60).padStart(2, '0')} in all).` : '.');
+    }
+  }
+  if (info && info.trimmed && on && !ok && $('trimA').value == info.trimmed[0] && $('trimB').value == info.trimmed[1])
+    msg = `This is the short version (bars ${pad3(info.trimmed[0])}-${pad3(info.trimmed[1])} of the full chart). Change the bars and Trim again, or untick to go back to the full version.`;
+  $('trimGo').disabled = !ok || (info && info.trimmed && a == info.trimmed[0] && b == info.trimmed[1]);
+  $('trimHint').textContent = msg;
+}
+['trimA', 'trimB'].forEach(k => $(k).oninput = trimState);
+$('trimOn').onchange = () => {
+  if (!$('trimOn').checked && info && info.trimmed) {           // back to the full version
+    if (!confirmLoseEdits()) { $('trimOn').checked = true; return; }
+    clearAuto(); start(info.trim_of); return;
+  }
+  trimState();
+};
+$('trimGo').onclick = async () => {
+  if (!job || !info) return;
+  if (!confirmLoseEdits()) return;
+  const t = ($('fTitle').value.trim() || info.title).replace(SHORT, '') + SHORT;
+  const from = info.trimmed ? info.trim_of : job;
+  $('genErr').textContent = '';
+  try {
+    const id = (await api('/api/trim', {id: from, start: +$('trimA').value, end: +$('trimB').value, title: t})).id;
+    clearAuto(); $('fTitle').value = t; start(id);
+  } catch (e) { $('genErr').textContent = e.message; }
 };
 $('cancel').onclick = () => job && api('/api/cancel', {id: job});
 /* add a music video to an existing chart: its own job, so the chart being edited stays loaded */
@@ -309,6 +431,9 @@ async function poll() {
   let j; try { j = await api('/api/job/' + job); } catch (e) { return; }
   $('prog').style.width = (j.state === 'done' ? 100 : Math.max(3, j.step / 5 * 100 - 10)) + '%';
   $('stage').textContent = {queued: 'Waiting for the previous job ...', failed: 'Stopped.'}[j.state] || (j.step ? `Step ${j.step} of 5: ${j.stage}` : j.stage);
+  const busy = ['queued', 'running'].includes(j.state) && j.mode !== 'batch';
+  $('busy').hidden = !busy;
+  if (busy) $('busyTxt').textContent = j.state === 'queued' ? 'Waiting for the previous job ...' : `Making the chart · step ${j.step || 1} of 5`;
   const pre = $('log'), atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
   pre.textContent = j.log.join('\n'); if (atEnd) pre.scrollTop = pre.scrollHeight;
   if (['done', 'failed', 'needs_score'].includes(j.state)) {
@@ -317,13 +442,17 @@ async function poll() {
     if (j.state === 'needs_score') $('stage').textContent = j.stage;
     if (j.state === 'done' && j.mode === 'batch') $('stage').textContent = 'Batch finished. Charts are in ' + $('bDest').value;
     if (j.info) { fill(j.info, j.out); loadChart(); }
+    if (j.state === 'done' && j.seconds != null) $('stage').textContent += ` Took ${j.seconds >= 60 ? Math.floor(j.seconds / 60) + ' min ' : ''}${j.seconds % 60} s.`;
   }
 }
 function fill(i, out) {
   info = i; info.out = out;
   $('stage').textContent = i.existing ? `Opened: ${i.bars} bars, ${i.notes} notes. Changes are saved into this folder.` : `Chart ready: ${i.bars} bars, ${i.notes} notes.`;
   $('save').textContent = i.existing ? 'Save changes to this chart' : 'Update info and output DTX file';
-  $('rebuild').disabled = !!i.existing;
+  $('rebuild').disabled = !!i.trimmed;
+  $('trimOn').checked = !!i.trimmed;
+  $('trimA').value = i.trimmed ? i.trimmed[0] : ''; $('trimB').value = i.trimmed ? i.trimmed[1] : '';
+  trimState();
   if (i.existing) {                      // the chart's own song info, as it is now
     $('fTitle').value = i.title; $('fArtist').value = i.artist; $('fComment').value = i.comment || '';
     $('fLevel').value = i.level || 680; $('fPrev').value = '';
@@ -341,6 +470,7 @@ function fill(i, out) {
   PV.pts = i.preview_set && i.preview_set.shape && i.preview_set.shape.length ? i.preview_set.shape.map(p => [+p[0], +p[1]]) : null;
   prevChanged();
   if (!jacketPath && i.jacket) { jacketPath = i.jacket; showJacket(jacketPath); }
+  AUTO_FIELDS.forEach(k => auto.add(k)); if (jacketPath === i.jacket) auto.add('jacket');
   renderFlags(i);
 }
 
@@ -803,6 +933,43 @@ $('dtxSet').onclick = async () => {
 $('openCr').onclick = () => saved && api('/api/open', {path: saved});
 $('openDir').onclick = () => saved && api('/api/folder', {path: saved});
 window.addEventListener('beforeunload', e => { if (E.dirty) { e.preventDefault(); e.returnValue = ''; } });
+</script>
+<div id="octo">
+  <div class="tail"></div>
+  <div class="say" id="octoSay" aria-live="polite"></div>
+  <button class="body" id="octoBtn" title="Click me" aria-label="Octopus: click for another line">
+    <img class="wide" src="/octo_open.webp" alt=""><img class="shut" src="/octo_closed.webp" alt="">
+  </button>
+</div>
+<script>
+(() => {   // the floating octopus: says a random line for 5 s, rests 2 s, and so on; click it for another line
+  const box = document.getElementById('octo'), say = document.getElementById('octoSay');
+  let lines = ['記得自己FINE TUNE！'], last = -1, timer = 0, typing = 0;
+  fetch('/declare.txt').then(r => r.ok ? r.text() : '').then(t => {
+    const l = t.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (l.length) lines = l;
+  }).catch(() => {});
+  const pick = () => {
+    let i = Math.floor(Math.random() * lines.length);
+    if (lines.length > 1) while (lines[i] === lines[last]) i = Math.floor(Math.random() * lines.length);
+    last = i; return lines[i];
+  };
+  const speak = () => {
+    clearTimeout(timer); clearInterval(typing);
+    const s = [...pick()]; let n = 0;
+    say.textContent = ''; box.classList.add('talk');
+    typing = setInterval(() => { say.textContent = s.slice(0, ++n).join(''); if (n >= s.length) clearInterval(typing); }, 45);
+    timer = setTimeout(() => { box.classList.remove('talk'); timer = setTimeout(speak, 2000); }, 5000);
+  };
+  const blink = () => {
+    box.classList.add('blink');
+    setTimeout(() => box.classList.remove('blink'), 140);
+    if (Math.random() < .25) setTimeout(() => { box.classList.add('blink'); setTimeout(() => box.classList.remove('blink'), 120); }, 280);
+    setTimeout(blink, 2200 + Math.random() * 4000);
+  };
+  document.getElementById('octoBtn').onclick = speak;
+  setTimeout(speak, 1500); setTimeout(blink, 2500);
+})();
 </script>
 </body>
 </html>

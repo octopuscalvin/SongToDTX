@@ -18,6 +18,9 @@ sys.path.insert(0, str(HERE))
 import config                                      # noqa: E402
 import dtx                                         # noqa: E402
 import preview                                     # noqa: E402
+import trim                                        # noqa: E402
+import add_mv                                      # noqa: E402
+import archive                                     # noqa: E402
 from drumkit import KIT                            # noqa: E402
 
 VERSION = (HERE / "VERSION").read_text().strip()
@@ -27,6 +30,7 @@ WORK = config.CACHE / "app"
 DTXMANIA = config.DTXMANIA
 DEST = DTXMANIA / "DTXFiles" / "AutoChart"
 AUDIO = (".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aif", ".aiff", ".wma")
+LOADING = {".gif": "image/gif", ".webp": "image/webp", ".png": "image/png", ".svg": "image/svg+xml"}
 safe = lambda s: re.sub(r'[\\/:*?"<>|]', "_", s).strip(" .") or "untitled"
 JOBS: dict[str, dict] = {}
 CRLF = chr(13) + chr(10)
@@ -66,6 +70,7 @@ def chart_cmd(job: dict, wav: Path) -> list:
         cmd += ["--video", o["video"]]
     if o.get("score"):
         cmd += ["--score", o["score"], "--score-first", str(o.get("score_first") or 2)]
+    cmd += o.get("build_args") or []
     return cmd
 
 
@@ -79,13 +84,29 @@ def job_thread(job: dict):
     o, w = job["opts"], job["work"]
     try:
         with GPU:
-            job["state"] = "running"
+            job["state"], job["started"] = "running", time.time()
             mode = o["mode"]
             if mode == "batch":
                 job["stage"] = "charting album folders"
                 code = run(job, [PY, HERE / "batch_albums.py", o.get("dest") or DTXMANIA / "DTXFiles" / "AutoChart (batch)",
                                  *[f for f in o["folders"].splitlines() if f.strip()]])
                 job["state"] = "done" if code == 0 else "failed"
+                return
+            if mode == "trim":                        # short version of a made chart (trim.py)
+                job["stage"] = "cutting the short version"
+                parent = JOBS[o["trim_of"]]
+                r = trim.trim(parent["out"], job["out"], int(o["start"]), int(o["end"]), o.get("title"))
+                meta = {"bars": r["bars"], "checks": []}
+                pv = (parent["info"] or {}).get("preview_set") or {}
+                if pv and r["start"] <= pv["bar"] and pv["bar"] + pv["bars"] <= r["end"] + trim.FADE_BARS + 1:
+                    meta["preview"] = {**pv, "bar": pv["bar"] - r["start"] + 1}
+                (job["out"] / "autochart.json").write_text(json.dumps(meta), encoding="utf-8")
+                job["log"].append(f"Short version: bars {r['start']:03d}-{r['end']:03d} and {trim.FADE_BARS} bars "
+                                  f"of fade, {r['seconds']} s")
+                job["info"] = chart_info(job)
+                job["state"], job["step"], job["stage"] = "done", 5, "chart ready"
+                job["seconds"] = round(time.time() - job["started"])
+                (job["out"] / "job.json").write_text(json.dumps({"opts": o, "log": job["log"]}, default=str), encoding="utf-8")
                 return
             if mode == "mv":                          # music video onto an existing chart (add_mv.py)
                 code = run(job, [PY, HERE / "add_mv.py", o["chart"], o["url"], w])
@@ -151,8 +172,14 @@ def job_thread(job: dict):
             if code != 0 or not (job["out"] / "mstr.dtx").exists():
                 raise RuntimeError("NO DRUMS: this song has almost no drums" if any("NO DRUMS" in l for l in job["log"])
                                    else (job["log"] or ["autochart failed"])[-1])
+            if o.get("bga"):                          # the opened chart's music video, same place
+                bga = Path(o["bga"])
+                shutil.copy2(bga, job["out"] / bga.name)
+                add_mv.attach(job["out"] / "mstr.dtx", bga.name, *add_mv.bgm_of(job["out"] / "mstr.dtx")[1:])
+                job["log"].append(f"music video {bga.name} carried over from the opened chart")
             job["info"] = chart_info(job)
             job["state"], job["step"], job["stage"] = "done", 5, "chart ready"
+            job["seconds"] = round(time.time() - job["started"])
             (job["out"] / "job.json").write_text(json.dumps({"opts": o, "log": job["log"]}, default=str), encoding="utf-8")
     except Exception as e:                                                   # shown in the page
         job["state"], job["error"] = "failed", str(e)
@@ -163,6 +190,13 @@ def start_job(opts: dict, rebuild_of: str | None = None) -> dict:
     jid = uuid.uuid4().hex[:8]
     if rebuild_of:                                   # same source and work dir, new hints
         old = JOBS[rebuild_of]
+        opts = {**old["opts"], **opts}
+        work = old["work"]
+    elif opts.get("rebuild_of_chart"):               # an opened chart's BGM: its own work folder (BGMs share names)
+        d = Path(opts["rebuild_of_chart"])
+        work = WORK / (time.strftime("%Y%m%d") + "_" + safe(d.name) + "_" + uuid.uuid5(uuid.NAMESPACE_URL, str(d)).hex[:6])
+    elif opts.get("mode") == "trim":                 # next to the chart it is cut from
+        old = JOBS[opts["trim_of"]]
         opts = {**old["opts"], **opts}
         work = old["work"]
     else:
@@ -293,6 +327,8 @@ def chart_info(job: dict) -> dict:
     bgm = min((c for c in ch.chips if c.channel == "01"), key=lambda c: (c.measure, c.pos), default=None)
     bgm_file = ch.headers.get(f"WAV{bgm.value}", "bgm.wav") if bgm else "bgm.wav"
     extra = {}
+    if o.get("mode") == "trim":
+        extra = {"trimmed": [o["start"], o["end"]], "trim_of": o["trim_of"]}
     if o.get("mode") == "existing":                      # song info as the chart has it now
         h = ch.headers
         pic = d / h["PREIMAGE"] if h.get("PREIMAGE") else None
@@ -402,6 +438,39 @@ def save_in_place(job: dict, f: dict) -> dict:
     return {"saved": str(d), "moved": [], "in_place": True}
 
 
+REPLAYED = {"--title", "--artist", "--preimage", "--preview", "--video", "--dlevel", "--bars"}   # set anew
+
+
+def rebuild_opened(job: dict, hints: str) -> dict:
+    """A new chart from an opened chart's own BGM (the original song), with the options it was
+    made with (autochart.json "build"; older charts: their one BPM, if they have only one) and
+    the new meter hints. Its music video comes along. The opened chart itself is not changed."""
+    d, i = job["out"], job["info"]
+    bgm = d / i["bgm_file"]
+    if not bgm.exists():
+        raise ValueError(f"The chart's BGM {bgm.name} is missing, so there is nothing to rebuild from.")
+    meta = json.loads((d / "autochart.json").read_text()) if (d / "autochart.json").exists() else {}
+    args, skip = [], False
+    for tok in meta.get("build") or []:
+        if skip:
+            skip = False
+        elif tok.split("=")[0] in REPLAYED:
+            skip = "=" not in tok
+        else:
+            args.append(tok)
+    if "build" not in meta and abs(float(i["bpm_min"]) - float(i["bpm_max"])) < 0.01:
+        args = ["--bpm", f"{float(i['bpm_main']):.2f}"]
+    ch = dtx.read_dtx(d / "mstr.dtx")
+    avi = ch.headers.get("AVI01")
+    opts = {"mode": "file", "path": str(bgm), "rebuild_of_chart": str(d), "title": i["title"], "artist": i["artist"],
+            "level": int(i.get("level") or 680), "build_args": args, "hints": hints}
+    if i.get("jacket"):
+        opts["jacket"] = i["jacket"]
+    if avi and (d / avi).exists() and any(c.channel == "54" for c in ch.chips):
+        opts["bga"] = str(d / avi)
+    return start_job(opts)
+
+
 def open_chart(path: str) -> dict:
     """An existing chart folder (or .dtx) opened for editing in place: a finished job whose work and
     out folder is the chart's own folder."""
@@ -468,13 +537,26 @@ class H(BaseHTTPRequestHandler):
             if not j:
                 return self.send({"error": "no such job"}, code=404)
             return self.send({k: j[k] for k in ("id", "state", "step", "stage", "info", "error")} |
-                             {"log": j["log"][-400:], "title": j["opts"].get("title"), "out": str(j["out"]),
+                             {"log": j["log"][-400:], "title": j["opts"].get("title"), "out": str(j["out"]), "seconds": j.get("seconds"),
                               "mode": j["opts"].get("mode"), "work": str(j["work"])})
         if u.path.startswith("/api/chart/"):
             j = JOBS.get(u.path.rsplit("/", 1)[1])
             if not j or not (j["out"] / "mstr.dtx").exists():
                 return self.send({"error": "no chart"}, code=404)
             return self.send(chart_json(j))
+        if u.path in ("/favicon.ico", "/icon.png"):   # the app's icon, for the browser tab
+            return self.send((APP / u.path[1:].replace("favicon", "icon")).read_bytes(),
+                             "image/x-icon" if u.path.endswith(".ico") else "image/png")
+        if u.path in ("/octo_open.webp", "/octo_closed.webp"):   # the floating octopus
+            return self.send((APP / u.path[1:]).read_bytes(), "image/webp")
+        if u.path == "/declare.txt":                  # its lines, one per line; edit app/declare.txt to change them
+            p = APP / "declare.txt"
+            return self.send(p.read_bytes() if p.exists() else b"", "text/plain; charset=utf-8")
+        if u.path == "/loading":                     # the picture shown while a chart is made: app/loading.* if there is one
+            pic = next((p for p in sorted(APP.glob("loading.*")) if p.suffix.lower() in LOADING), None)
+            if pic:
+                return self.send(pic.read_bytes(), LOADING[pic.suffix.lower()])
+            return self.send({"error": "no loading picture"}, code=404)
         if u.path == "/api/file":                     # jacket / sounds; only files under the app's own folders
             p = Path(unquote(parse_qs(u.query).get("path", [""])[0])).resolve()
             roots = [HERE, config.CACHE, DTXMANIA] + [j["out"] for j in JOBS.values() if j["opts"].get("mode") == "existing"]
@@ -500,18 +582,34 @@ class H(BaseHTTPRequestHandler):
         try:
             if u.path == "/api/upload":               # raw file body; name in X-Name
                 name = safe(unquote(self.headers.get("X-Name", "upload")))
-                d = WORK / "uploads" / time.strftime("%Y%m%d_%H%M%S")
+                d = WORK / "uploads" / (time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:4])
                 d.mkdir(parents=True, exist_ok=True)
                 (d / name).write_bytes(self.body())
-                return self.send({"path": str(d / name)})
+                if not archive.is_archive(name):
+                    return self.send({"path": str(d / name)})
+                folder = archive.unpack(d / name, d)          # zip / 7z / rar of songs
+                songs = [p for p in folder.rglob("*") if p.suffix.lower() in AUDIO]
+                if not songs:
+                    return self.send({"error": f"No songs found in {name}."}, code=400)
+                if len(songs) == 1:
+                    return self.send({"path": str(songs[0]), "name": songs[0].name})
+                return self.send({"folder": str(folder), "songs": len(songs)})
             data = json.loads(self.body() or b"{}")
             if u.path == "/api/start":
                 return self.send({"id": start_job(data)["id"]})
+            if u.path == "/api/trim":                 # short version of the chart in the editor
+                if JOBS[data["id"]]["state"] != "done":
+                    return self.send({"error": "Generate the chart first."}, code=400)
+                o = {"mode": "trim", "trim_of": data["id"], "start": int(data["start"]), "end": int(data["end"]),
+                     "title": data.get("title")}
+                return self.send({"id": start_job(o)["id"]})
             if u.path == "/api/load":                 # an existing chart, edited in place
                 return self.send({"id": open_chart(data["path"])["id"]})
             if u.path == "/api/rebuild":
                 if JOBS[data["id"]]["opts"].get("mode") == "existing":
-                    return self.send({"error": "An opened chart has no source song to rebuild from."}, code=400)
+                    return self.send({"id": rebuild_opened(JOBS[data["id"]], (data.get("opts") or {}).get("hints", ""))["id"]})
+                if JOBS[data["id"]]["opts"].get("mode") == "trim":
+                    return self.send({"error": "Rebuild the full version, then trim it again."}, code=400)
                 return self.send({"id": start_job(data.get("opts", {}), data["id"])["id"]})
             if u.path.startswith("/api/chart/"):
                 n = save_chart(JOBS[u.path.rsplit("/", 1)[1]], data["chips"])

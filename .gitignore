@@ -34,3 +34,6 @@ __pycache__/
 *.mid
 *.npz
 *.zip
+# the app's own icon and loading picture
+!app/icon.png
+!app/loading.*

@@ -1,0 +1,61 @@
+Song to DTX - license and third-party notices
+==============================================
+
+Song to DTX is a free hobby tool and is never sold. Its own code is under the MIT License (below).
+This installer also contains, or downloads during setup, the parts listed here. Each keeps its own
+license. By installing you agree to use them under those licenses.
+
+IMPORTANT: two model files are licensed for NON-COMMERCIAL use only (LarsNet, ADTOF). Do not use
+Song to DTX, or charts made with it, for commercial purposes.
+
+
+Bundled in the installer
+------------------------
+
+* LarsNet model weights (drum separation into kick / snare / toms / hi-hat / cymbals)
+  (c) 2023 Alessandro Ilic Mezza, Image and Sound Processing Lab, Politecnico di Milano.
+  Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
+  https://github.com/polimi-ispl/larsnet  -  https://creativecommons.org/licenses/by-nc/4.0/
+  Full text: vendor\larsnet\pretrained_larsnet_models\LICENSE.txt
+
+* Demucs (HTDemucs model and code) - MIT License, (c) Meta Platforms, Inc.
+  https://github.com/facebookresearch/demucs
+
+* beat_this (beat and downbeat tracking, model and code) - MIT License, CPJKU, JKU Linz.
+  https://github.com/CPJKU/beat_this
+
+* Python 3.11 - Python Software Foundation License. Full text: python\LICENSE.txt
+
+* PyTorch and torchaudio - BSD-style license, (c) Meta Platforms, Inc. and contributors.
+  https://github.com/pytorch/pytorch
+  The NVIDIA version includes NVIDIA CUDA / cuDNN runtime libraries, redistributed as part of
+  PyTorch under the NVIDIA CUDA Toolkit and cuDNN license agreements.
+
+* NumPy, SciPy, librosa, numba, llvmlite, soundfile, scikit-learn, pretty_midi, mido, PyYAML,
+  einops, soxr, huggingface_hub and their dependencies - BSD / MIT / ISC / Apache-2.0 licenses as
+  stated in each package folder under python\Lib\site-packages (*.dist-info\LICENSE*).
+
+* yt-dlp - The Unlicense (public domain). https://github.com/yt-dlp/yt-dlp
+  Only download what you have the right to use.
+
+* FFmpeg (ffmpeg.exe, ffprobe.exe) - GNU General Public License v3, essentials build by gyan.dev.
+  Source code: https://ffmpeg.org/download.html  -  build: https://www.gyan.dev/ffmpeg/builds/
+
+* Starter drum kit (kit\) - simple synthesized sounds made by Song to DTX (MIT). Replace them with
+  samples you are allowed to use.
+
+
+Downloaded during setup (not inside the installer)
+--------------------------------------------------
+
+* ADTOF-pytorch (drum transcription) by Xavier Riley, https://github.com/xavriley/ADTOF-pytorch
+  Its model weights are converted from ADTOF by M. Zehren, M. Alunno and P. Bientinesi,
+  Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (CC BY-NC-SA 4.0).
+  https://github.com/MZehren/ADTOF  -  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+* LarsNet code, https://github.com/polimi-ispl/larsnet
+
+
+MIT License (Song to DTX)
+-------------------------
+

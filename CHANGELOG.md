@@ -4,8 +4,46 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
 
 ## 0.7.5
 
+- Windows installers (Inno Setup, `installer\`): an NVIDIA and a CPU edition with Python, packages,
+  models, ffmpeg and a starter kit inside; `stage.py` assembles the folder, `SongToDTX.iss` builds it.
+  The ADTOF-pytorch and LarsNet code (no license to redistribute) are fetched during setup by
+  `download_parts.py`.
+- App: a floating octopus at the bottom right says a random line from `app/declare.txt` (5 s on,
+  2 s off; click it for another one).
 - Separated drum tracks are cached by the song's full path, not its folder name: two folders with
   the same name (e.g. two `completed` folders) no longer share each other's drums.
+- App: a new song no longer keeps the previous song's name, artist, jacket and preview bar; only
+  what was typed for it is kept. Step 3 shows a loading animation while the chart is made
+  (`app\loading.gif`, `.webp`, `.png` or `.svg` replaces it), and the time taken is shown when done.
+- Short version (`trim.py`, step 3 "Trim song into short cut"): keeps the notes of bars From..To,
+  then 3 bars of music fading out, and ends there. BGM and BGA video are cut to match and the
+  title gets "(Short ver.)"; the full version stays and unticking goes back to it.
+- Double kick: above 150 BPM an 8th-triplet kick stream (3+ in a row) alternates right / left
+  too, so no foot plays 3 fast kicks in a row.
+- Hi-hat check: hats that are really piano or keyboard notes (no hat on the hi-hat stem or the
+  drum stem, the band louder than the drums) are dropped and their measures listed for checking.
+- Fast tom rolls: the hits ADTOF's peak picking cancels inside a roll are picked from its tom
+  activation (cached per song); tom recall against official charts 70% -> 78%.
+- App: Rebuild works on an opened chart: a new chart from its own BGM with the options it was made
+  with (now saved in `autochart.json` "build"; older charts: their BPM if they have one), the new
+  meter hints and its music video. The opened chart stays as it is.
+- Archives: a zip, 7z or rar of songs can be dropped on the app (`archive.py`; 7-Zip when it is
+  installed, else Python's zip reader and Windows' tar). One song inside goes to "Song file"; more
+  go to the Batch folders list, which also takes archive paths and has its own drop zone.
+- Batch: a folder of song folders named "Title - Artist" is charted as one box, with title and
+  artist from each folder's name and the jacket from a picture in that folder or the song's own art.
+- Tempo grid: a very short tempo section that the previous section's switch has already passed no
+  longer crashes the build ("cannot unpack non-iterable NoneType").
+- Ride groove: in a bar with 6+ ride hits (right hand on the ride, left on the snare) a closed
+  hi-hat is the foot: it becomes a hi-hat pedal chip (LP) and the measures are listed.
+- Silent drums: any note where the separated drum stem is silent (40 dB or more under the song's
+  usual drum level) is dropped and listed by measure; a piano intro read from the full mix no
+  longer comes out as hats, ride and crashes. (The hi-hat check could miss these: over silence its
+  attack test compares noise.)
+- Add MV: the video offset is the one most matching windows agree on; with a different edit a
+  median of all windows could land on no real offset.
+- Octopus app icon (`app\icon.png`, `app\icon.ico`): browser tab, installer, Start menu and desktop
+  shortcuts.
 
 ## 0.7.4
 

@@ -505,6 +505,8 @@ def tatum_grid(sections: list[Section], duration: float, onsets: np.ndarray | No
             times += a_pts
             bpms += [s.bpm] * len(a_pts)
             break
+        if not a_pts:   # a short section already passed by the previous one's switch: skip it
+            continue
         # candidate switch pairs near the boundary
         best = None
         for ai in range(max(0, len(a_pts) - 12), len(a_pts)):
@@ -518,6 +520,8 @@ def tatum_grid(sections: list[Section], duration: float, onsets: np.ndarray | No
                 cost = abs(gap - s.tatum) + 0.002 * abs(a - nxt.start) / s.tatum
                 if best is None or cost < best[0]:
                     best = (cost, ai, b)
+        if best is None:
+            best = (0.0, len(a_pts) - 1, a_pts[-1] + s.tatum)
         _, ai, b = best
         ramp = best_ramp(a_pts[:ai + 1], b, s, nxt, onsets, w) if onsets is not None and nxt.ramp else None
         if ramp is None:

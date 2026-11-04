@@ -146,7 +146,10 @@ def main():
     win = windows(onsets(mono(video, a.work / "mv_m.wav")), onsets(mono(bgm, a.work / "bgm_m.wav")))
     if len(win) < 3:
         raise SystemExit("The video's sound doesn't match this chart's music. Is it the same song?")
-    d = float(np.median([w[1] for w in win if w[4] > CLEAR] or [w[1] for w in win]))
+    # the offset most windows agree on (weighted by how clearly each matched): with a different edit
+    # the windows scatter, and a plain median lands between them on no real offset
+    best = max((w[1] for w in win), key=lambda o: sum(x[4] for x in win if abs(x[1] - o) < 0.1))
+    d = float(np.median([w[1] for w in win if abs(w[1] - best) < 0.1]))
     # a video from another master can run a little fast or slow: fit offset = d0 + s * t
     inl = [w for w in win if abs(w[1] - d) < 0.1]
     s = 0.0

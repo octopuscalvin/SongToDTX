@@ -228,7 +228,66 @@ def transcribe(audio: Path) -> list[tuple[float, int]]:
             out.instruments.append(inst)
             out.write(str(midi_path))
     pm = pretty_midi.PrettyMIDI(str(midi_path))
-    return sorted((n.start, n.pitch) for inst in pm.instruments for n in inst.notes)
+    hits = [(n.start, n.pitch) for inst in pm.instruments for n in inst.notes]
+    return sorted(hits + roll_toms(tom_activation(audio), [t for t, p in hits if p == 47]))
+
+
+ACT_FPS = 100
+TOM_TH = 0.32       # ADTOF's own tom threshold
+ROLL_BUSY = 0.25    # tom activation averaging this over +-ROLL_WIN is a roll
+ROLL_WIN = 0.15     # s
+ROLL_PROM = 0.15    # a roll hit rises this much over the lowest point of the 50 ms before it
+
+
+def tom_activation(audio: Path) -> np.ndarray:
+    """ADTOF's frame-wise tom activation (100 fps), cached; long audio in overlapping chunks."""
+    path = CACHE / f"{cache_key(audio)}.tomact.npy"
+    if path.exists():
+        return np.load(path)
+    import soundfile as sf
+    sys.path.insert(0, str(VENDOR / "ADTOF-pytorch" / "src"))
+    from adtof_pytorch import transcribe_to_midi
+
+    def act(p):
+        return transcribe_to_midi(p, path.with_suffix(".mid"), device=config.device(), return_activations=True)[0][:, 2]
+    dur = sf.info(str(audio)).duration
+    if dur <= CHUNK:
+        a = act(audio)
+    else:
+        import librosa
+        y, sr = librosa.load(str(audio), sr=44100, mono=False)
+        y = np.atleast_2d(y)
+        a = np.zeros(int(dur * ACT_FPS) + 1, dtype=np.float32)
+        tmp = path.with_suffix(".chunk.wav")
+        s = 0.0
+        while s < dur:
+            c0 = max(s - OVERLAP, 0.0)
+            sf.write(str(tmp), y[:, int(c0 * sr):int((s + CHUNK + OVERLAP) * sr)].T, sr)
+            part = act(tmp)
+            i0, i1 = int(s * ACT_FPS), min(int((s + CHUNK) * ACT_FPS), len(a))
+            k0 = i0 - int(c0 * ACT_FPS)
+            seg = part[k0:k0 + i1 - i0]
+            a[i0:i0 + len(seg)] = seg
+            s += CHUNK
+        tmp.unlink()
+    np.save(path, a)
+    return a
+
+
+def roll_toms(a: np.ndarray, toms: list[float]) -> list[tuple[float, int]]:
+    """ADTOF's peak picker subtracts the last 100 ms' average activation, so in a fast tom roll
+    (hits 60-90 ms apart) the hits cancel each other and most vanish, while the activation still
+    peaks on each one. Inside rolls (activation averaging ROLL_BUSY over +-ROLL_WIN) take every
+    local peak over TOM_TH that rises ROLL_PROM over the dip before it."""
+    k = int(ROLL_WIN * ACT_FPS)
+    avg = np.convolve(a, np.ones(2 * k + 1) / (2 * k + 1), mode="same")
+    have = np.array(sorted(toms))
+    out = []
+    for i in range(5, len(a) - 2):
+        if (a[i] >= TOM_TH and a[i] == a[i - 2:i + 3].max() and a[i] - a[i - 5:i].min() >= ROLL_PROM
+                and avg[i] >= ROLL_BUSY and (not out or i - out[-1] > 2)):
+            out.append(i)
+    return [(i / ACT_FPS, 47) for i in out if not len(have) or np.abs(have - i / ACT_FPS).min() > 0.03]
 
 
 # ---- 5. quantize + lane mapping ------------------------------------------------
@@ -374,6 +433,76 @@ def verify_kick_runs(notes: list[Note], drums: Path, bpms: np.ndarray, bar_start
     return [n for n in notes if id(n) not in drop]
 
 
+HAT_MIN_RISE = 4.0     # dB: a real hat hit rises this much on the LarsNet hi-hat stem (6-16 kHz)
+HAT_MIN_LEVEL = -20.0  # dB under the song's strong hat hits (90th pct)
+
+
+SILENT_DRUMS = -40.0   # dB under the song's typical drum level at its notes: no drums playing there
+
+
+def drop_silent(notes: list[Note], drums: Path, bar_starts: list[int], log: list[str]) -> list[Note]:
+    """ADTOF reads the full mix, so a piano or keyboard intro with no drums at all can come out as
+    hats, ride and crashes. Any note where the separated drum stem is silent (40 dB or more under
+    the drums elsewhere; quiet ghost notes sit 20-30 dB under) is dropped."""
+    import soundfile as sf
+    if not notes:
+        return notes
+    y, sr = sf.read(str(drums), always_2d=True)
+    hop = sr // 100
+    e = np.sqrt(np.add.reduceat(y.mean(1) ** 2, np.arange(0, len(y), hop)) / hop) + 1e-9
+
+    def level(t):
+        i = int(t * 100)
+        return 20 * np.log10(e[max(i - 2, 0):max(i + 6, 1)].max()) if i < len(e) else -200.0
+    lv = {id(n): level(n.t) for n in notes}
+    ref = float(np.median(list(lv.values())))
+    drop = {k for k, v in lv.items() if v - ref < SILENT_DRUMS}
+    if drop:
+        bs = np.array(bar_starts)
+        ms = sorted({int(np.searchsorted(bs, n.q, side="right")) for n in notes if id(n) in drop})
+        print(f"      silent drums: {len(drop)} notes where the drum stem is silent -> dropped")
+        log.append(f"notes dropped where the drums are silent (piano / keys intro?) in measures "
+                   f"{', '.join(f'{m:03d}' for m in ms)} - check they were not real")
+    return [n for n in notes if id(n) not in drop]
+
+
+def verify_hats(notes: list[Note], drums: Path, bar_starts: list[int], log: list[str]) -> list[Note]:
+    """ADTOF hears sharp piano / keyboard notes in the full mix as hi-hats. A hat is dropped only
+    when nothing says it is one: no attack and a level far under the song's strong hats on the
+    LarsNet hi-hat stem (piano "hats": no rise, 30-60 dB under; real ones rise 7-24 dB), no attack
+    on the whole drum stem either, and the rest of the band louder than the drums there
+    (programmed pop hats the hi-hat stem misses still show on the drum stem)."""
+    import librosa
+    hh = [n for n in notes if n.ch in ("11", "18")]
+    if len(hh) < 8:
+        return notes
+
+    def high_band(path):
+        y, sr = librosa.load(str(path), sr=44100, mono=True)
+        S = np.abs(librosa.stft(y, n_fft=1024, hop_length=128))
+        f = librosa.fft_frequencies(sr=sr, n_fft=1024)
+        return S[(f >= 6000) & (f < 16000)].mean(0) + 1e-9
+    H, D, R = high_band(drum_parts(drums)["hihat"]), high_band(drums), high_band(drums.parent / "no_drums.wav")
+    fps = 44100 / 128
+
+    def level(E, t, a, b):
+        i, j = int((t + a) * fps), int((t + b) * fps) + 1
+        return float(20 * np.log10(E[max(i, 0):max(j, i + 1)].mean())) if i < len(E) else -200.0
+
+    def rise(E, t):
+        return level(E, t, 0, 0.03) - level(E, t, -0.035, -0.005)
+    top = np.percentile([level(H, n.t, 0, 0.03) for n in hh], 90)
+    drop = {id(n) for n in hh if rise(H, n.t) < HAT_MIN_RISE and level(H, n.t, 0, 0.03) - top < HAT_MIN_LEVEL
+            and rise(D, n.t) < HAT_MIN_RISE and level(D, n.t, 0, 0.03) < level(R, n.t, 0, 0.03)}
+    if drop:
+        bs = np.array(bar_starts)
+        ms = sorted({int(np.searchsorted(bs, n.q, side="right")) for n in hh if id(n) in drop})
+        print(f"      hat check: {len(drop)} of {len(hh)} hi-hats have no hat on the hi-hat stem -> dropped")
+        log.append(f"hi-hats dropped as other instruments (piano, keys) in measures {', '.join(f'{m:03d}' for m in ms)}"
+                   f" - check they were not real")
+    return [n for n in notes if id(n) not in drop]
+
+
 def left_foot_busy(notes: list[Note]) -> list[Note]:
     """No hi-hat pedal (1B) within a 16th of a left-pedal kick, unless a hand hat is there."""
     lbd = np.array(sorted(float(n.q) for n in notes if n.ch == "1C"))
@@ -385,15 +514,22 @@ def left_foot_busy(notes: list[Note]) -> list[Note]:
 def double_kick(notes: list[Note], bar_starts: list[int], bpms: np.ndarray) -> list[Note]:
     """Rule: DOUBLE_KICK_RUN+ kicks in a row (16ths or closer) are split between the feet, at
     any tempo; above DOUBLE_KICK_PAIR_BPM already a pair is, so no foot plays two 16ths in a row.
+    Above DOUBLE_KICK_BPM an 8th-triplet stream (3+ in a row) is split too.
     Straight 16ths: the in-between 16ths ("e"/"a") go to the left bass pedal (1C); triplet and
     32nd runs alternate R L R."""
     kicks = sorted((n for n in notes if n.ch == "13"), key=lambda n: n.q)
     bs = np.array(bar_starts)
     run: list[Note] = []
+    bpm_at = lambda q: bpms[min(int(q), len(bpms) - 1)]
+
+    def joins(n):
+        gap = n.q - run[-1].q
+        return 0 < gap <= 1 or (gap == Fraction(4, 3) and bpm_at(n.q) > DOUBLE_KICK_BPM)
 
     def flush():
-        fast = bpms[min(int(run[0].q), len(bpms) - 1)] > DOUBLE_KICK_PAIR_BPM if run else False
-        if len(run) < (2 if fast else DOUBLE_KICK_RUN):
+        fast = bpm_at(run[0].q) > DOUBLE_KICK_PAIR_BPM if run else False
+        slow_gap = any(b.q - a.q > 1 for a, b in zip(run, run[1:]))     # 8th triplets: a pair is fine
+        if len(run) < (2 if fast and not slow_gap else DOUBLE_KICK_RUN):
             return
         if all(n.q.denominator == 1 for n in run):
             for n in run:
@@ -404,7 +540,7 @@ def double_kick(notes: list[Note], bar_starts: list[int], bpms: np.ndarray) -> l
             for n in run[1::2]:
                 n.ch = "1C"
     for n in kicks:
-        if run and not 0 < n.q - run[-1].q <= 1:
+        if run and not joins(n):
             flush()
             run = []
         run.append(n)
@@ -1092,6 +1228,36 @@ RIDE_OVER_HAT = 0.0   # dB: cymbal stem over hi-hat stem at a "hi-hat" hit -> it
 CHICK_RISE = 8.0   # dB: a foot chick on the LarsNet hi-hat stem (6-16 kHz) over the moment before
 
 
+RIDE_BAR = 6   # ride hits in a bar that make the ride the time-keeper
+
+
+def ride_bar_foot_hats(notes: list[Note], bar_starts: list[int], log: list[str]) -> list[Note]:
+    """Rock-and-roll ride groove: right hand on the ride, left on the snare, so the hi-hat heard in
+    between is the left foot (LP), not a hand. In a bar with RIDE_BAR+ ride hits every closed hand
+    hi-hat becomes a pedal chip (1B); one already on that spot is kept once. Open hats stay."""
+    bs = np.array(bar_starts)
+    bar_of = lambda q: int(np.searchsorted(bs, q, side="right") - 1)
+    rides: dict[int, int] = {}
+    for n in notes:
+        if n.ch == "19":
+            rides[bar_of(n.q)] = rides.get(bar_of(n.q), 0) + 1
+    bars = {b for b, c in rides.items() if c >= RIDE_BAR}
+    pedal = {n.q for n in notes if n.ch == "1B"}
+    out, moved = [], set()
+    for n in notes:
+        if n.ch == "11" and bar_of(n.q) in bars:
+            moved.add(bar_of(n.q) + 1)
+            if n.q in pedal:
+                continue
+            n.ch = "1B"
+            pedal.add(n.q)
+        out.append(n)
+    if moved:
+        log.append(f"hand hi-hats under a ride groove moved to the hi-hat pedal (LP) in measures "
+                   f"{', '.join(f'{m:03d}' for m in sorted(moved))}")
+    return out
+
+
 def ride_foot_hats(notes: list[Note], drums: Path, T: np.ndarray, bar_starts: list[int]) -> list[Note]:
     """Riding on the ride cymbal, the hi-hat is the left foot (ride + hi-hat
     kicked on the 8ths). In bars with 4+ ride hits a closed hat becomes a single pedal chip (1B),
@@ -1433,8 +1599,11 @@ def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_che
     if crash:
         notes = crash_hints(notes, starts, T, crash)
     notes = verify_kick_runs(notes, drums, bpms, starts, tom_log, kick_check)
+    notes = drop_silent(notes, drums, starts, tom_log)
+    notes = verify_hats(notes, drums, starts, tom_log)
     if ride_foot:
         notes = steady_foot_hats(ride_foot_hats(notes, drums, T, starts), starts)   # before the hand limit: those hats are feet
+    notes = ride_bar_foot_hats(notes, starts, tom_log)
     n_before = sum(n.ch != "1B" for n in notes)
     notes = limit_hands(notes)
     notes = double_kick(notes, starts, bpms)
@@ -1763,3 +1932,9 @@ if __name__ == "__main__":
           a.kit, a.snare_match, a.volume, a.dynamics, a.preview, a.preimage, a.dlevel, a.ride_foot,
           a.merge, a.groove, a.swing_hats, a.tempo_from, a.crash, a.snare_24,
           a.score, a.score_first, a.video, a.bpm, a.game_style, a.grid_from)
+    # the options this chart was made with, so a rebuild (e.g. from the app) can repeat them
+    meta = a.out_dir / "autochart.json"
+    info = json.loads(meta.read_text())
+    info["build"] = sys.argv[3:]
+    info["audio"] = str(a.audio.resolve())
+    meta.write_text(json.dumps(info, indent=2, default=float))
