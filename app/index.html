@@ -55,6 +55,11 @@ pre{background:var(--field);border:1px solid var(--line);border-radius:var(--r);
 .edit{display:grid;grid-template-columns:min-content minmax(0,1fr);gap:16px;align-items:start}
 .tool{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px;color:var(--muted)}
 .tool select{padding:3px 6px;font-size:12px}
+.genres{margin:12px 0 18px}.genres .hint{font-size:12px}
+.glist{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 6px}
+.gchip{display:flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;cursor:pointer;user-select:none}
+.gchip:has(input:checked){border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.genres.need .glist{outline:1px solid var(--bad);outline-offset:4px;border-radius:8px}
 .tool input[type=range]{width:70px;vertical-align:middle}
 #scroller{height:640px;overflow-y:scroll;position:relative;border:1px solid var(--line);border-radius:var(--r);background:#121214;outline:none}
 #cv{position:sticky;top:0;display:block;cursor:default}
@@ -184,6 +189,18 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
   <section class="card">
     <div class="spread"><h2 style="margin:0"><span class="num">2</span>Generate</h2>
       <div class="row"><button class="btn" id="cancel" hidden>Cancel</button><button class="btn primary" id="go">Generate chart</button></div></div>
+    <div class="genres" id="genres">
+      <b>Genre</b> <span class="hint">pick at least one; several are fine</span>
+      <div class="glist">
+        <label class="gchip"><input type="checkbox" value="auto"><span>I don't know WTF is it</span></label>
+        <label class="gchip"><input type="checkbox" value="rock"><span>Rock</span></label>
+        <label class="gchip"><input type="checkbox" value="metal"><span>Metal</span></label>
+        <label class="gchip"><input type="checkbox" value="pop"><span>Pop</span></label>
+        <label class="gchip"><input type="checkbox" value="edm"><span>EDM</span></label>
+        <label class="gchip"><input type="checkbox" value="progressive"><span>Progressive</span></label>
+      </div>
+      <div class="hint" id="genreTxt"></div>
+    </div>
     <div class="bar"><div id="prog"></div></div>
     <div class="stage" id="stage">Pick a source, then generate. A song takes about a minute on this PC.</div>
     <div class="err" id="genErr"></div>
@@ -219,6 +236,7 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
     <div>
       <div class="spread" style="margin-bottom:8px"><b style="font-size:13px">Check these measures</b><span class="hint" id="flagCount"></span></div>
       <div class="side" id="flags"><div class="empty">After generating, anything the tool is unsure about is explained here, with buttons to jump to it and play it.</div></div>
+      <p class="hint" style="margin:10px 0 0">Looks wrong? Change the genre in step 2, then Rebuild.</p>
       <label>Meter hints (optional), then rebuild</label>
       <div class="row"><input type="text" id="hints" placeholder="76=78 78 78 44 x4; 92=44" style="flex:1"><button class="btn" id="rebuild">Rebuild</button></div>
       <p class="hint">"92=78" makes measure 092 a 7/8 bar and 4/4 resumes after it. "92=44" forces it back to a normal 4/4 bar. Rebuilding makes a new chart, so hand edits on this one are not carried over.</p>
@@ -275,7 +293,7 @@ const pad3 = m => String(m).padStart(3, '0');
 
 (() => { const im = $('busyImg'); im.onload = () => { im.hidden = false; $('busyBeat').hidden = true; }; im.src = '/loading'; })();
 fetch('/api/defaults').then(r => r.json()).then(d => {
-  $('bDest').value = d.dest_batch; $('ver').textContent = 'v' + d.version; $('dtxDir').value = d.dtxmania; $('dtxBox').hidden = d.dtxmania_ok;
+  $('bDest').value = d.dest_batch; $('ver').textContent = `v${d.version} · Library ${d.library}`; $('dtxDir').value = d.dtxmania; $('dtxBox').hidden = d.dtxmania_ok;
   if (d.last_job) start(d.last_job); })
   .catch(() => $('srv').textContent = 'server not running');
 
@@ -328,9 +346,40 @@ function clearAuto() {
 }
 function showJacket(p) { $('jacket').innerHTML = p ? `<img alt="jacket" src="${fileUrl(p)}">` : 'Jacket preview'; }
 
+/* genre: the tool's starting point (autochart.py --genre); one or several, or "don't know" alone */
+const GENRE_TXT = {auto: 'The tool decides everything from the audio.',
+  rock: 'Rock: 4/4, 8th hi-hat grooves, crashes on downbeats (the default tuning).',
+  metal: 'Metal: double kick from 120 BPM, fast kick rolls found more easily, tempos up to 260.',
+  pop: 'Pop: steady 4/4, odd bars only when clear, groove snare on 2 and 4, fewer ghost hats.',
+  edm: 'EDM: one fixed tempo (programmed, no drift), steady 4/4, tempos up to 180.',
+  progressive: 'Progressive: odd meters and tempo changes expected, odd bars cheaper, real tempo steps kept.'};
+const genreBoxes = [...document.querySelectorAll('#genres input')];
+function genres() { return genreBoxes.filter(b => b.checked).map(b => b.value); }
+function setGenre(g) {                       // a list, or "metal,progressive" from a chart; empty = none picked
+  const want = Array.isArray(g) ? g : String(g || '').split(',').filter(Boolean);
+  genreBoxes.forEach(b => b.checked = want.includes(b.value));
+  genreShow();
+}
+function genreShow() {
+  const g = genres();
+  $('genreTxt').textContent = g.map(k => GENRE_TXT[k]).join(' ') + (g.length > 1 ? ' Settings two genres both change meet halfway.' : '');
+  if (g.length) $('genres').classList.remove('need');
+}
+genreBoxes.forEach(b => b.onchange = () => {  // "don't know" and the genres exclude each other
+  if (b.checked) genreBoxes.forEach(o => { if (o !== b && (b.value === 'auto' || o.value === 'auto')) o.checked = false; });
+  genreShow();
+});
+function needGenre() {
+  if (genres().length) return false;
+  $('genres').classList.add('need');
+  $('genErr').textContent = "Pick the song's genre first (or \"I don't know WTF is it\").";
+  return true;
+}
+
 function sourceOpts() {
   const o = {mode, title: $('fTitle').value.trim(), artist: $('fArtist').value.trim(), level: +$('fLevel').value || 680};
   if (jacketPath) o.jacket = jacketPath;
+  o.genre = genres();
   if (mode === 'file') { if (!filePath) throw 'Drop a song file first.'; o.path = filePath; }
   if (mode === 'youtube') { o.url = $('ytUrl').value.trim(); if (!/^https?:\/\//.test(o.url)) throw 'Enter a YouTube link.'; o.bga = $('ytBga').checked; }
   if (mode === 'score') { o.chart_url = $('scChart').value.trim(); o.url = $('scSrc').value.trim(); if (!o.chart_url || !o.url) throw 'Enter both links.'; }
@@ -351,15 +400,17 @@ $('go').onclick = async () => {
   if (!confirmLoseEdits()) return;
   clearAuto();
   let o; try { o = sourceOpts(); } catch (e) { $('srcErr').textContent = e; return; }
+  if (needGenre()) return;
   if ($('hints').value.trim()) o.hints = $('hints').value.trim();
   try { start((await api('/api/start', o)).id); } catch (e) { $('genErr').textContent = e.message; }
 };
 $('rebuild').onclick = async () => {
   if (!job) { $('genErr').textContent = 'Generate a chart first.'; return; }
+  if (needGenre()) return;
   if (!confirmLoseEdits()) return;
   if (info && info.existing && !confirm("Rebuilding makes a new chart from this chart's own song (BGM), with the settings it was made with and your meter hints. " +
       'It is saved as a new version in AutoChart; this chart stays as it is. Continue?')) return;
-  try { start((await api('/api/rebuild', {id: job, opts: {hints: $('hints').value.trim()}})).id); } catch (e) { $('genErr').textContent = e.message; }
+  try { start((await api('/api/rebuild', {id: job, opts: {hints: $('hints').value.trim(), genre: genres()}})).id); } catch (e) { $('genErr').textContent = e.message; }
 };
 /* short version: bars A..B of the chart in the editor, then 3 bars of fade (trim.py); the full version stays */
 const TRIM_HINT = $('trimHint').textContent, SHORT = ' (Short ver.)';
@@ -444,7 +495,7 @@ async function poll() {
     if (j.state === 'failed') $('genErr').textContent = j.error && j.error.startsWith('NO DRUMS') ? 'This song has almost no drums, so there is nothing to chart.' : (j.error || 'Something went wrong. Open the log to see where.');
     if (j.state === 'needs_score') $('stage').textContent = j.stage;
     if (j.state === 'done' && j.mode === 'batch') $('stage').textContent = 'Batch finished. Charts are in ' + $('bDest').value;
-    if (j.info) { fill(j.info, j.out); loadChart(); }
+    if (j.info) { fill(j.info, j.out); loadChart(); setGenre(j.genre); }
     if (j.state === 'done' && j.seconds != null) $('stage').textContent += ` Took ${j.seconds >= 60 ? Math.floor(j.seconds / 60) + ' min ' : ''}${j.seconds % 60} s.`;
   }
 }

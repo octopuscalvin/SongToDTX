@@ -16,6 +16,11 @@ sys.path.insert(0, str(HERE))
 import config  # noqa: E402
 import archive  # noqa: E402
 ED = config.EDITING_DIR
+GENRE = "auto"                     # --genre for every song in the batch (autochart.py --genre)
+if "--genre" in sys.argv:
+    k = sys.argv.index("--genre")
+    GENRE = sys.argv[k + 1]
+    del sys.argv[k:k + 2]
 dest = Path(sys.argv[1])
 AUDIO = (".mp3", ".flac", ".aif", ".aiff", ".wav", ".m4a", ".wma", ".ogg")
 PICS = (".jpg", ".jpeg", ".png")
@@ -104,6 +109,8 @@ for src in albums:
         artist = (named.get(f) or [None, None])[1] or t.get("artist") or t.get("album_artist") or "Unknown"
         cmd = [sys.executable, str(HERE / "autochart.py"), str(wav), str(out), "--title", title,
                "--artist", artist, "--dlevel", "680"]
+        if GENRE != "auto":
+            cmd += ["--genre", GENRE]
         pic = cover
         if f in named:      # a song folder's own picture, else the song's own art
             pic = next((p for p in sorted(f.parent.iterdir()) if p.suffix.lower() in PICS), None) or                 (info[f]["_art"] and art(f, work / safe(album.name) / f"{name}_cover.jpg")) or None

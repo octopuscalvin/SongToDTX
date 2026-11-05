@@ -1831,6 +1831,57 @@ def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_che
     return notes, tom_log
 
 
+# Genre: a starting point for a song whose first chart looks wrong. Each sets the tuning a genre's
+# drumming usually needs; what the audio clearly shows still decides. Rock is the tool's own tuning.
+ODD = (12, 8, 20, 24, 14, 18, 15, 17)   # bar lengths (16ths) other than 4/4
+GENRES = {
+    "rock": ("4/4, 8th hi-hat grooves, crashes on downbeats (the default tuning)", {}, {}),
+    "metal": ("double kick from 120 BPM, fast kick rolls found more easily, tempos up to 260",
+              {"DOUBLE_KICK_BPM": 120.0, "DOUBLE_KICK_PAIR_BPM": 100.0, "KICK_ROLL_FLOOR": -30.0},
+              {"max_bpm": 260.0}),
+    "pop": ("steady 4/4, odd bars only when clear, groove snare on 2 and 4, fewer ghost hats",
+            {"HAT_MIN_RISE": 5.0, "odd_bars": 1.5}, {"snare24": True}),
+    "edm": ("one fixed tempo (programmed, no drift), steady 4/4, tempos up to 180",
+            {"tempo.CLOSE_SECTIONS": 0.08, "tempo.DRIFT_MAX": 1.0, "odd_bars": 2.5}, {"max_bpm": 180.0}),
+    "progressive": ("odd meters and tempo changes expected: odd bars cheaper, real tempo steps kept",
+                    {"odd_bars": 0.6, "tempo.REPEAT_DISCOUNT": 0.85, "tempo.CHANGE_COST": 1.0,
+                     "tempo.STEP_MIN": 0.015, "tempo.STEP_LOSS": 0.85}, {}),
+}
+
+
+def apply_genre(names: str) -> dict:
+    """Sets the tuning of one genre or several ("metal,progressive"); returns their build defaults
+    (max_bpm, snare24). A setting one of them changes is used; where several change the same one,
+    they meet halfway (the mean), the highest tempo ceiling counts and the 2-and-4 snare is kept."""
+    chosen = [g for g in (names or "").replace(" ", "").split(",") if g and g != "auto"]
+    if not chosen:
+        return {}
+    bad = [g for g in chosen if g not in GENRES]
+    if bad:
+        raise SystemExit(f"unknown genre {', '.join(bad)} (known: {', '.join(GENRES)})")
+    for g in chosen:
+        print(f"      genre {g}: {GENRES[g][0]}")
+    tune: dict[str, list[float]] = {}
+    for g in chosen:
+        for key, v in GENRES[g][1].items():
+            tune.setdefault(key, []).append(v)
+    for key, vs in tune.items():
+        v = float(np.mean(vs))
+        if key == "odd_bars":
+            for L in ODD:
+                tempo.BAR_COST[L] = tempo.BAR_COST_BASE[L] * v
+            continue
+        mod, _, attr = key.rpartition(".")
+        setattr(tempo if mod == "tempo" else sys.modules[__name__], attr, v)
+    out = {}
+    tops = [GENRES[g][2]["max_bpm"] for g in chosen if "max_bpm" in GENRES[g][2]]
+    if tops:
+        out["max_bpm"] = max(tops)
+    if any(GENRES[g][2].get("snare24") for g in chosen):
+        out["snare24"] = True
+    return out
+
+
 def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, input_mode: str,
           bar_hints: str = "", tempo_at: list[int] | None = None, max_bpm: float = 220.0,
           backbeat: str = "", half: bool = False, kick_check: bool = False,
@@ -1841,9 +1892,13 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
           tempo_from: str = "", crash: str = "", snare24: bool = False,
           score: Path | None = None, score_first: int = 2, video: Path | None = None,
           fixed_bpm: float = 0.0, game_style: bool = False, grid_from: Path | None = None,
-          cymbal_roll: str = "") -> Path:
+          cymbal_roll: str = "", genre: str = "") -> Path:
     import soundfile as sf
     out_dir.mkdir(parents=True, exist_ok=True)
+    g = apply_genre(genre)
+    if max_bpm == 220.0:
+        max_bpm = g.get("max_bpm", max_bpm)
+    snare24 = snare24 or g.get("snare24", False)
     print("[1/5] separating stems ...")
     drums, rest = separate(audio)
     duration = sf.info(str(rest)).duration
@@ -2145,6 +2200,9 @@ if __name__ == "__main__":
     ap.add_argument("--score", type=Path, default=None,
                     help="score mode: notes from this drum-score transcription (score.txt), audio gives the grid")
     ap.add_argument("--score-first", type=int, default=2, help="measure that score bar 1 goes into")
+    ap.add_argument("--genre", default="auto",
+                    help="the song's genre, one or several ('metal,progressive'): " +
+                         "; ".join(f"{k}: {v[0]}" for k, v in GENRES.items()))
     ap.add_argument("--video", type=Path, default=None,
                     help="source video as BGA, started with the BGM (non-WMV is converted to WMV2)")
     a = ap.parse_args()
@@ -2153,10 +2211,11 @@ if __name__ == "__main__":
           a.kit, a.snare_match, a.volume, a.dynamics, a.preview, a.preimage, a.dlevel, a.ride_foot,
           a.merge, a.groove, a.swing_hats, a.tempo_from, a.crash, a.snare_24,
           a.score, a.score_first, a.video, a.bpm, a.game_style, a.grid_from,
-          a.cymbal_roll)
+          a.cymbal_roll, a.genre)
     # the options this chart was made with, so a rebuild (e.g. from the app) can repeat them
     meta = a.out_dir / "autochart.json"
     info = json.loads(meta.read_text())
     info["build"] = sys.argv[3:]
+    info["library"] = (HERE / "LIBRARY").read_text().strip()
     info["audio"] = str(a.audio.resolve())
     meta.write_text(json.dumps(info, indent=2, default=float))

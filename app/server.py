@@ -24,6 +24,7 @@ import archive                                     # noqa: E402
 from drumkit import KIT                            # noqa: E402
 
 VERSION = (HERE / "VERSION").read_text().strip()
+LIBRARY = (HERE / "LIBRARY").read_text().strip()   # the charting rules' own version (update patches)
 
 PY = sys.executable
 WORK = config.CACHE / "app"
@@ -71,7 +72,13 @@ def chart_cmd(job: dict, wav: Path) -> list:
     if o.get("score"):
         cmd += ["--score", o["score"], "--score-first", str(o.get("score_first") or 2)]
     cmd += o.get("build_args") or []
-    return cmd
+    return cmd + genre_args(o)
+
+
+def genre_args(o: dict) -> list:
+    """--genre for the chosen genre(s), "metal,progressive"; none for "I don't know"."""
+    genre = ",".join(o["genre"]) if isinstance(o.get("genre"), list) else o.get("genre") or "auto"
+    return [] if genre == "auto" else ["--genre", genre]
 
 
 def yt(url: str, out: Path, fmt: str, *extra) -> Path:
@@ -89,7 +96,7 @@ def job_thread(job: dict):
             if mode == "batch":
                 job["stage"] = "charting album folders"
                 code = run(job, [PY, HERE / "batch_albums.py", o.get("dest") or DTXMANIA / "DTXFiles" / "AutoChart (batch)",
-                                 *[f for f in o["folders"].splitlines() if f.strip()]])
+                                 *[f for f in o["folders"].splitlines() if f.strip()], *genre_args(o)])
                 job["state"] = "done" if code == 0 else "failed"
                 return
             if mode == "trim":                        # short version of a made chart (trim.py)
@@ -172,8 +179,8 @@ def job_thread(job: dict):
             if code != 0 or not (job["out"] / "mstr.dtx").exists():
                 raise RuntimeError("NO DRUMS: this song has almost no drums" if any("NO DRUMS" in l for l in job["log"])
                                    else (job["log"] or ["autochart failed"])[-1])
-            if o.get("bga"):                          # the opened chart's music video, same place
-                bga = Path(o["bga"])
+            if o.get("keep_mv"):                      # the opened chart's music video, same place
+                bga = Path(o["keep_mv"])
                 shutil.copy2(bga, job["out"] / bga.name)
                 add_mv.attach(job["out"] / "mstr.dtx", bga.name, *add_mv.bgm_of(job["out"] / "mstr.dtx")[1:])
                 job["log"].append(f"music video {bga.name} carried over from the opened chart")
@@ -438,10 +445,10 @@ def save_in_place(job: dict, f: dict) -> dict:
     return {"saved": str(d), "moved": [], "in_place": True}
 
 
-REPLAYED = {"--title", "--artist", "--preimage", "--preview", "--video", "--dlevel", "--bars"}   # set anew
+REPLAYED = {"--title", "--artist", "--preimage", "--preview", "--video", "--dlevel", "--bars", "--genre"}   # set anew
 
 
-def rebuild_opened(job: dict, hints: str) -> dict:
+def rebuild_opened(job: dict, hints: str, genre: str = "") -> dict:
     """A new chart from an opened chart's own BGM (the original song), with the options it was
     made with (autochart.json "build"; older charts: their one BPM, if they have only one) and
     the new meter hints. Its music video comes along. The opened chart itself is not changed."""
@@ -463,12 +470,31 @@ def rebuild_opened(job: dict, hints: str) -> dict:
     ch = dtx.read_dtx(d / "mstr.dtx")
     avi = ch.headers.get("AVI01")
     opts = {"mode": "file", "path": str(bgm), "rebuild_of_chart": str(d), "title": i["title"], "artist": i["artist"],
-            "level": int(i.get("level") or 680), "build_args": args, "hints": hints}
+            "level": int(i.get("level") or 680), "build_args": args, "hints": hints,
+            "genre": genre or genre_of(meta.get("build") or [])}
     if i.get("jacket"):
         opts["jacket"] = i["jacket"]
     if avi and (d / avi).exists() and any(c.channel == "54" for c in ch.chips):
-        opts["bga"] = str(d / avi)
+        opts["keep_mv"] = str(d / avi)
     return start_job(opts)
+
+
+def genre_of(build_args: list) -> str:
+    """The --genre a chart was made with ("auto" when none)."""
+    for k, tok in enumerate(build_args):
+        if tok == "--genre" and k + 1 < len(build_args):
+            return build_args[k + 1]
+        if tok.startswith("--genre="):
+            return tok.split("=", 1)[1]
+    return "auto"
+
+
+def chart_genre(out: Path) -> str:
+    """The genre a finished chart folder was made with (its autochart.json)."""
+    try:
+        return genre_of(json.loads((out / "autochart.json").read_text()).get("build") or [])
+    except (OSError, ValueError):
+        return "auto"
 
 
 def open_chart(path: str) -> dict:
@@ -538,7 +564,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send({"error": "no such job"}, code=404)
             return self.send({k: j[k] for k in ("id", "state", "step", "stage", "info", "error")} |
                              {"log": j["log"][-400:], "title": j["opts"].get("title"), "out": str(j["out"]), "seconds": j.get("seconds"),
-                              "mode": j["opts"].get("mode"), "work": str(j["work"])})
+                              "mode": j["opts"].get("mode"), "work": str(j["work"]),
+                              "genre": j["opts"].get("genre") or chart_genre(j["out"])})
         if u.path.startswith("/api/chart/"):
             j = JOBS.get(u.path.rsplit("/", 1)[1])
             if not j or not (j["out"] / "mstr.dtx").exists():
@@ -571,7 +598,7 @@ class H(BaseHTTPRequestHandler):
             return self.send({"charts": [{"path": str(d), "name": str(d.relative_to(root))} for d in dirs]})
         if u.path == "/api/defaults":                 # last job too, so a reloaded page picks it up again
             return self.send({"dest_batch": str(DTXMANIA / "DTXFiles" / "AutoChart (batch)"), "level": 680,
-                              "version": VERSION, "dtxmania": str(DTXMANIA),
+                              "version": VERSION, "library": LIBRARY, "dtxmania": str(DTXMANIA),
                               "dtxmania_ok": (DTXMANIA / "DTXFiles").is_dir(),
                               "last_job": next((k for k, j in reversed(JOBS.items()) if j["opts"].get("mode") != "mv"), None)})
         self.send({"error": "not found"}, code=404)
@@ -607,7 +634,8 @@ class H(BaseHTTPRequestHandler):
                 return self.send({"id": open_chart(data["path"])["id"]})
             if u.path == "/api/rebuild":
                 if JOBS[data["id"]]["opts"].get("mode") == "existing":
-                    return self.send({"id": rebuild_opened(JOBS[data["id"]], (data.get("opts") or {}).get("hints", ""))["id"]})
+                    return self.send({"id": rebuild_opened(JOBS[data["id"]], (data.get("opts") or {}).get("hints", ""),
+                                                             (data.get("opts") or {}).get("genre", ""))["id"]})
                 if JOBS[data["id"]]["opts"].get("mode") == "trim":
                     return self.send({"error": "Rebuild the full version, then trim it again."}, code=400)
                 return self.send({"id": start_job(data.get("opts", {}), data["id"])["id"]})
@@ -665,7 +693,7 @@ def main():
     load_jobs()
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
     url = f"http://127.0.0.1:{a.port}"
-    print(f"Song to DTX {VERSION} running at {url}  (close this window to stop)", flush=True)
+    print(f"Song to DTX {VERSION} (Library {LIBRARY}) running at {url}  (close this window to stop)", flush=True)
     if not a.no_browser:
         webbrowser.open(url)
     srv.serve_forever()
