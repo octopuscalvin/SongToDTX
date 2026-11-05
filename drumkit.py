@@ -32,3 +32,17 @@ def kit_file(name: str) -> str:
 KIT = {ch: (wid, kit_file(n)) for ch, (wid, n) in NAMES.items()}
 # per-lane volume of the default kit, %: the pedal chick sits under the hats (charters use 30-35)
 KIT_VOLUME = {"1B": 35}
+
+
+def digital_kit():
+    """Kit file (JSON, lane -> [sample, volume]) of the old-school digital kit in kit/digi, made
+    by make_kit.py the first time; your own samples under the same names there win."""
+    import json
+    folder = KIT_DIR / "digi"
+    if not all((folder / f"{n}.wav").exists() or (folder / f"{n}.ogg").exists() for n in SAMPLE_NAMES):
+        import make_kit
+        make_kit.write_digi(folder)
+    pick = lambda n: next((f"{n}{e}" for e in (".ogg", ".flac") if (folder / f"{n}{e}").exists()), f"{n}.wav")
+    spec = {ch: [pick(n), KIT_VOLUME.get(ch, 100)] for ch, (_, n) in NAMES.items()}
+    (folder / "kit.json").write_text(json.dumps(spec, indent=1), encoding="utf-8")
+    return folder / "kit.json"

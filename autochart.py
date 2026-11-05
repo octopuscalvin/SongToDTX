@@ -34,6 +34,8 @@ import add_mv
 import dtx
 import preview as preview_sound
 import sounds
+import drumkit
+import genres
 import tempo
 from drumkit import KIT, KIT_VOLUME
 
@@ -232,6 +234,42 @@ def transcribe(audio: Path) -> list[tuple[float, int]]:
     return sorted(hits + roll_toms(tom_activation(audio), [t for t, p in hits if p == 47]))
 
 
+GHOST_TH = 0.0       # ADTOF snare threshold of a second, softer pass for ghost notes (0 = off; its own is 0.24)
+GHOST_LEVEL = -30.0  # dB under the song's strong snares on the snare stem: quieter is noise, not a ghost note
+GHOST_VOL = 0.5      # a ghost note plays at this share of the snare volume
+
+
+def ghost_snares(audio: Path, hits: list[tuple[float, int]], drums: Path) -> list[float]:
+    """Soft snare hits ADTOF's own threshold leaves out (ghost notes): a second pass with the snare
+    threshold at GHOST_TH, kept where the LarsNet snare stem has a hit no more than GHOST_LEVEL under
+    the song's strong snares and no snare is already within 40 ms."""
+    import librosa
+    import pretty_midi
+    from scipy.ndimage import maximum_filter1d
+    path = CACHE / f"{cache_key(audio)}.adtof-sd{GHOST_TH:.2f}.mid"
+    if not path.exists():
+        sys.path.insert(0, str(VENDOR / "ADTOF-pytorch" / "src"))
+        from adtof_pytorch import transcribe_to_midi
+        from adtof_pytorch.post_processing import FRAME_RNN_THRESHOLDS
+        th = list(FRAME_RNN_THRESHOLDS)
+        th[1] = GHOST_TH
+        try:
+            transcribe_to_midi(audio, path, thresholds=th, device=config.device())
+        except RuntimeError as e:     # a very long song can be too much for one pass: no ghost notes then
+            print(f"      ghost notes: skipped ({e})")
+            return []
+    sd = np.array(sorted(t for t, p in hits if p == 38))
+    soft = [n.start for i in pretty_midi.PrettyMIDI(str(path)).instruments for n in i.notes if n.pitch == 38]
+    soft = [t for t in soft if not len(sd) or np.min(np.abs(sd - t)) > 0.04]
+    if not soft or len(sd) < 8:
+        return []
+    y, sr = librosa.load(str(drum_parts(drums)["snare"]), sr=22050, mono=True)
+    env = maximum_filter1d(np.abs(y), int(0.03 * sr))
+    lv = lambda t: 20 * np.log10(env[min(int(t * sr), len(env) - 1)] + 1e-9)
+    top = np.percentile([lv(t) for t in sd], 90)
+    return [t for t in soft if lv(t) - top >= GHOST_LEVEL]
+
+
 ACT_FPS = 100
 TOM_TH = 0.32       # ADTOF's own tom threshold
 ROLL_BUSY = 0.25    # tom activation averaging this over +-ROLL_WIN is a roll
@@ -302,6 +340,7 @@ class Note:
 
 STRAIGHT = [Fraction(i, 4) for i in range(4)]      # 16ths (in beats)
 TRIPLET = [Fraction(i, 6) for i in range(6)]       # 16th triplets (incl. 8th triplets)
+TRIPLET_BIAS = 0.6   # a beat goes on the triplet grid when its hits miss it by under this share of the 16ths' miss
 
 
 def quantize(hits: list[tuple[float, int]], T: np.ndarray, bar_starts: list[int]) -> list[Note]:
@@ -326,7 +365,7 @@ def quantize(hits: list[tuple[float, int]], T: np.ndarray, bar_starts: list[int]
         beat_len = Fraction(min(4, L - 4 * beat), 4)  # last beat of an odd bar is shorter
         def err(g):
             return sum(min(abs(f - float(x)) for x in g + [beat_len]) for f, _, _ in items)
-        g = TRIPLET if beat_len == 1 and err(TRIPLET) < 0.6 * err(STRAIGHT) else \
+        g = TRIPLET if beat_len == 1 and err(TRIPLET) < TRIPLET_BIAS * err(STRAIGHT) else \
             [x for x in STRAIGHT if x < beat_len]
         for f, pitch, t in items:
             frac = min(g + [beat_len], key=lambda x: abs(f - float(x)))
@@ -1831,55 +1870,28 @@ def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_che
     return notes, tom_log
 
 
-# Genre: a starting point for a song whose first chart looks wrong. Each sets the tuning a genre's
-# drumming usually needs; what the audio clearly shows still decides. Rock is the tool's own tuning.
-ODD = (12, 8, 20, 24, 14, 18, 15, 17)   # bar lengths (16ths) other than 4/4
-GENRES = {
-    "rock": ("4/4, 8th hi-hat grooves, crashes on downbeats (the default tuning)", {}, {}),
-    "metal": ("double kick from 120 BPM, fast kick rolls found more easily, tempos up to 260",
-              {"DOUBLE_KICK_BPM": 120.0, "DOUBLE_KICK_PAIR_BPM": 100.0, "KICK_ROLL_FLOOR": -30.0},
-              {"max_bpm": 260.0}),
-    "pop": ("steady 4/4, odd bars only when clear, groove snare on 2 and 4, fewer ghost hats",
-            {"HAT_MIN_RISE": 5.0, "odd_bars": 1.5}, {"snare24": True}),
-    "edm": ("one fixed tempo (programmed, no drift), steady 4/4, tempos up to 180",
-            {"tempo.CLOSE_SECTIONS": 0.08, "tempo.DRIFT_MAX": 1.0, "odd_bars": 2.5}, {"max_bpm": 180.0}),
-    "progressive": ("odd meters and tempo changes expected: odd bars cheaper, real tempo steps kept",
-                    {"odd_bars": 0.6, "tempo.REPEAT_DISCOUNT": 0.85, "tempo.CHANGE_COST": 1.0,
-                     "tempo.STEP_MIN": 0.015, "tempo.STEP_LOSS": 0.85}, {}),
-}
-
-
 def apply_genre(names: str) -> dict:
-    """Sets the tuning of one genre or several ("metal,progressive"); returns their build defaults
-    (max_bpm, snare24). A setting one of them changes is used; where several change the same one,
-    they meet halfway (the mean), the highest tempo ceiling counts and the 2-and-4 snare is kept."""
-    chosen = [g for g in (names or "").replace(" ", "").split(",") if g and g != "auto"]
-    if not chosen:
-        return {}
-    bad = [g for g in chosen if g not in GENRES]
-    if bad:
-        raise SystemExit(f"unknown genre {', '.join(bad)} (known: {', '.join(GENRES)})")
+    """Sets the tuning of the chosen genre(s) (genres.py) and returns their build options."""
+    try:
+        chosen = genres.parse(names)
+    except ValueError as e:
+        raise SystemExit(str(e))
+    tune, flags = genres.blend(chosen)
     for g in chosen:
-        print(f"      genre {g}: {GENRES[g][0]}")
-    tune: dict[str, list[float]] = {}
-    for g in chosen:
-        for key, v in GENRES[g][1].items():
-            tune.setdefault(key, []).append(v)
-    for key, vs in tune.items():
-        v = float(np.mean(vs))
+        print(f"      genre {genres.GENRES[g]['name']}: {genres.GENRES[g]['text']}")
+    for key, v in tune.items():
         if key == "odd_bars":
-            for L in ODD:
+            for L in ODD_BARS:
                 tempo.BAR_COST[L] = tempo.BAR_COST_BASE[L] * v
-            continue
-        mod, _, attr = key.rpartition(".")
-        setattr(tempo if mod == "tempo" else sys.modules[__name__], attr, v)
-    out = {}
-    tops = [GENRES[g][2]["max_bpm"] for g in chosen if "max_bpm" in GENRES[g][2]]
-    if tops:
-        out["max_bpm"] = max(tops)
-    if any(GENRES[g][2].get("snare24") for g in chosen):
-        out["snare24"] = True
-    return out
+        elif key.startswith("bar_cost_"):
+            tempo.BAR_COST[int(key[9:])] = v
+        else:
+            mod, _, attr = key.rpartition(".")
+            setattr(tempo if mod == "tempo" else sys.modules[__name__], attr, v)
+    return flags
+
+
+ODD_BARS = (12, 8, 20, 24, 14, 18, 15, 17)   # bar lengths (16ths) other than 4/4
 
 
 def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, input_mode: str,
@@ -1898,7 +1910,11 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     g = apply_genre(genre)
     if max_bpm == 220.0:
         max_bpm = g.get("max_bpm", max_bpm)
-    snare24 = snare24 or g.get("snare24", False)
+    snare24, ride_foot = snare24 or g.get("snare24", False), ride_foot or g.get("ride_foot", False)
+    kick_check, snare_match = kick_check or g.get("kick_check", False), snare_match or g.get("snare_match", False)
+    swing = swing or g.get("swing", 0)
+    if g.get("kit") == "digi" and not kit_file:
+        kit_file = drumkit.digital_kit()
     print("[1/5] separating stems ...")
     drums, rest = separate(audio)
     duration = sf.info(str(rest)).duration
@@ -1922,6 +1938,10 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
 
     print("[3/5] transcribing drums ...")
     hits = transcribe(drums if input_mode == "drums" else audio)
+    ghosts = []
+    if GHOST_TH and not score:
+        ghosts = ghost_snares(drums if input_mode == "drums" else audio, hits, drums)
+        hits = sorted(hits + [(t, 38) for t in ghosts])
     print(f"      {len(hits)} hits")
     if len(hits) < 50:   # no drum kit in the song: nothing to chart
         sys.exit(f"NO DRUMS: only {len(hits)} drum hits found, not charted")
@@ -2030,6 +2050,12 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     else:
         notes, tom_log = audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_check,
                                      ride_foot, groove, swing)
+    if ghosts:
+        g = np.array(ghosts)
+        soft = [n for n in notes if n.ch == "12" and np.min(np.abs(g - n.t)) < 0.002]
+        for n in soft:
+            n.vol = GHOST_VOL
+        print(f"      ghost notes: {len(soft)} soft snares added (snare stem confirms them), at {GHOST_VOL:.0%} volume")
     notes = foot_hat_spacing(notes, starts, T)
     snare_rolls(notes, starts)
     notes = hat_rolls(notes, starts, T, bpms)
@@ -2201,8 +2227,7 @@ if __name__ == "__main__":
                     help="score mode: notes from this drum-score transcription (score.txt), audio gives the grid")
     ap.add_argument("--score-first", type=int, default=2, help="measure that score bar 1 goes into")
     ap.add_argument("--genre", default="auto",
-                    help="the song's genre, one or several ('metal,progressive'): " +
-                         "; ".join(f"{k}: {v[0]}" for k, v in GENRES.items()))
+                    help="the song's genre, one or several ('metal,progressive'): " + ", ".join(genres.GENRES))
     ap.add_argument("--video", type=Path, default=None,
                     help="source video as BGA, started with the BGM (non-WMV is converted to WMV2)")
     a = ap.parse_args()

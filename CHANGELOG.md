@@ -62,14 +62,20 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   backwards in time (the short section between them is dropped and its neighbours' switch searched
   again). A real tempo step of 2-4% between two long sections (each fits its own steady tempo far
   better than one shared tempo) is no longer merged as a "drifting take"; slow live drifts still are.
-- Genre (`--genre metal,progressive`, app: step 2, picked before Generate): the song's genre is the
-  tool's starting point. Metal: double kick from 120 BPM, fast kick rolls found more easily, tempos
-  up to 260. Pop: odd bars only when clear, groove snare on 2 and 4, fewer ghost hats. EDM: one fixed
-  tempo, no drift, odd bars rare, tempos up to 180. Progressive: odd bars cheaper, real tempo steps
-  kept. Rock is the tool's own tuning. Several genres can be ticked: what one changes is used, and
-  where two change the same setting they meet halfway. "I don't know WTF is it" (no genre) decides
-  everything from the audio, as before. The chart remembers its genre; change it and Rebuild when the
-  first chart looks wrong. Batch folders use it too.
+- Genre (`--genre metal,progressive`, `genres.py`; app: step 2, picked before Generate): the song's
+  genre is the tool's starting point. 21 genres in groups - Rock (Rock, Visual, Punk, Funk), Metal
+  (Metal, Speed Metal), Pop (Pop, 80's 90's pop, 70's pop), Jazz, Latin & Ballad (Jazz, Bossa, Waltz,
+  Tango, Ballade, Swing, Fusion), Progressive, Digital (EDM, City Pop, DIGI Rock) - each setting the
+  tuning its drumming usually needs: double kick, tempo ceiling, odd-bar cost, following a drifting
+  tempo, triplet feel, ride, soft kicks, kick check, kit sound. Several genres can be ticked: what one
+  changes is used, and where two change the same setting they meet halfway. "I don't know WTF is it"
+  (no genre) decides everything from the audio, as before. The app shows the groups as buttons that
+  open their genres. The chart remembers its genre; change it and Rebuild when the first chart looks
+  wrong. Batch folders use it too.
+- Ghost notes (Funk, Jazz, Fusion): a second, softer snare pass of the transcriber; a soft snare is
+  kept where the separated snare drum has a hit and is written at half volume.
+- Digital drum kit (EDM, City Pop, DIGI Rock): old-school drum-machine sounds made by `make_kit.py`
+  into `kit\digi` the first time (your own samples under the same names there win).
 - App: a YouTube song with "Use the video as BGA" no longer fails at the end with "expected str,
   bytes or os.PathLike object, not bool".
 - Library version (`LIBRARY`, shown beside the app version): the charting rules' own version,

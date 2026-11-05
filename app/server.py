@@ -21,6 +21,7 @@ import preview                                     # noqa: E402
 import trim                                        # noqa: E402
 import add_mv                                      # noqa: E402
 import archive                                     # noqa: E402
+import genres                                      # noqa: E402
 from drumkit import KIT                            # noqa: E402
 
 VERSION = (HERE / "VERSION").read_text().strip()
@@ -598,7 +599,7 @@ class H(BaseHTTPRequestHandler):
             return self.send({"charts": [{"path": str(d), "name": str(d.relative_to(root))} for d in dirs]})
         if u.path == "/api/defaults":                 # last job too, so a reloaded page picks it up again
             return self.send({"dest_batch": str(DTXMANIA / "DTXFiles" / "AutoChart (batch)"), "level": 680,
-                              "version": VERSION, "library": LIBRARY, "dtxmania": str(DTXMANIA),
+                              "version": VERSION, "library": LIBRARY, "dtxmania": str(DTXMANIA), "genres": genres.for_page(),
                               "dtxmania_ok": (DTXMANIA / "DTXFiles").is_dir(),
                               "last_job": next((k for k, j in reversed(JOBS.items()) if j["opts"].get("mode") != "mv"), None)})
         self.send({"error": "not found"}, code=404)
