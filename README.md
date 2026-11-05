@@ -59,7 +59,9 @@ Useful hints when you know more than the audio tells: `--bpm 213` (the song's pu
 
 ## Licenses and credits
 
-Song to DTX itself is under the [MIT License](LICENSE). The models it uses have their own licenses; they are
+Song to DTX itself and its charting Library belong to its author: free to install and use for personal,
+non-commercial charting; no copying, changing, reverse engineering or redistribution (see [LICENSE](LICENSE)).
+Source published earlier under the MIT License stays under it. The models it uses have their own licenses; they are
 downloaded by `setup.bat` and not included here:
 
 - [Demucs](https://github.com/facebookresearch/demucs) (MIT) — separates the drums from the song.

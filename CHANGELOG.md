@@ -38,6 +38,17 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   hits are matched in 8 s windows; parts without drums follow the harmony and are listed by measure.
   The result reports how close the hits land.
 - Editor: double-click a hi-hat note, or select hi-hats and press O, to switch closed / open.
+- Library signature (`LIBRARY.sig`, `library_check.py`): every file of the tool is listed with its
+  checksum and signed with the owner's private key; the app checks it with the owner's public key. A
+  changed, missing or unsigned file stops charting ("NOT OFFICIAL" in the header), so only the owner
+  can update the tool. On the owner's PC (settings.json "owner_key") it is a warning. Update
+  patches are built only from a signed Library.
+- Installers and update patches carry the Library compiled (binary modules); the scripts the app
+  starts by name are two-line launchers. Installing over an older version removes its plain rule
+  files first.
+- License: Song to DTX and its charting Library now belong to their author (free personal,
+  non-commercial use; no copying, changing, reverse engineering or redistribution). Source published
+  earlier under the MIT License stays under it.
 - Library version (`LIBRARY`, shown beside the app version): the charting rules' own version,
   starting at 1.0, also saved in each chart's `autochart.json`.
 - Update patch (`installer\make_patch.py`, `SongToDTXPatch.iss`): the app and its charting rules

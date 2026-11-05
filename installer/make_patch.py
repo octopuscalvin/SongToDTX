@@ -9,6 +9,7 @@ package needs the full installer.
 import argparse
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -23,6 +24,11 @@ def main():
     ap.add_argument("--iscc", type=Path, default=None, help="Inno Setup compiler; without it only the folder is made")
     a = ap.parse_args()
     a.stage, a.out = a.stage.resolve(), a.out.resolve()   # ISCC reads relative paths from the .iss folder
+    sys.path.insert(0, str(REPO))
+    import library_check
+    ok, msg = library_check.check()
+    if not ok:                                 # a patch carries only the owner's signed Library
+        raise SystemExit(f"not building: {msg}. Sign the Library first (owner's private tools).")
     if a.stage.exists():
         shutil.rmtree(a.stage)
     a.stage.mkdir(parents=True)
@@ -34,7 +40,10 @@ def main():
             continue
         (a.stage / f).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / f, a.stage / f)
-    for f in ("LIBRARY", "download_parts.py"):    # LIBRARY before its first commit
+    import json
+    signed = json.loads((REPO / "LIBRARY.sig").read_text(encoding="utf-8"))["manifest"]["files"]
+    for f in [*signed, "LIBRARY.sig", "download_parts.py"]:    # every signed file, also before its first commit
+        (a.stage / f).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / f, a.stage / f)
 
     version = (REPO / "VERSION").read_text().strip()

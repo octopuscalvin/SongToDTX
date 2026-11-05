@@ -2167,7 +2167,9 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     return path
 
 
-if __name__ == "__main__":
+def main():
+    import library_check
+    library_check.require(config.SETTINGS)       # only the owner's signed Library charts (see library_check.py)
     ap = argparse.ArgumentParser()
     ap.add_argument("audio", type=Path)
     ap.add_argument("out_dir", type=Path)
@@ -2244,3 +2246,7 @@ if __name__ == "__main__":
     info["library"] = (HERE / "LIBRARY").read_text().strip()
     info["audio"] = str(a.audio.resolve())
     meta.write_text(json.dumps(info, indent=2, default=float))
+
+
+if __name__ == "__main__":
+    main()

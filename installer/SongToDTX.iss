@@ -50,6 +50,18 @@ Name: "{autodesktop}\Song to DTX"; Filename: "{app}\Song to DTX.bat"; WorkingDir
 Filename: "{app}\python\python.exe"; Parameters: "-s ""{app}\download_parts.py"""; WorkingDir: "{app}"; StatusMsg: "Downloading the drum transcription parts (about 16 MB) ..."; Flags: waituntilterminated
 Filename: "{app}\Song to DTX.bat"; WorkingDir: "{app}"; Description: "Start Song to DTX now"; Flags: postinstall nowait skipifsilent shellexec
 
+[InstallDelete]
+; an older version's plain rule files: the Library now ships compiled (.pyd)
+Type: files; Name: "{app}\tempo.py"
+Type: files; Name: "{app}\sounds.py"
+Type: files; Name: "{app}\genres.py"
+Type: files; Name: "{app}\drumkit.py"
+Type: files; Name: "{app}\live_mv.py"
+Type: files; Name: "{app}\preview.py"
+Type: files; Name: "{app}\dtx.py"
+Type: files; Name: "{app}\archive.py"
+Type: files; Name: "{app}\library_check.py"
+
 [UninstallDelete]
 ; made after install: downloaded parts, caches and settings (your charts in DTXFiles are not touched)
 Type: filesandordirs; Name: "{app}\vendor"

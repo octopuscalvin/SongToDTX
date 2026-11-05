@@ -299,7 +299,11 @@ const pad3 = m => String(m).padStart(3, '0');
 (() => { const im = $('busyImg'); im.onload = () => { im.hidden = false; $('busyBeat').hidden = true; }; im.src = '/loading'; })();
 fetch('/api/defaults').then(r => r.json()).then(d => {
   buildGenres(d.genres);
-  $('bDest').value = d.dest_batch; $('ver').textContent = `v${d.version} · Library ${d.library}`; $('dtxDir').value = d.dtxmania; $('dtxBox').hidden = d.dtxmania_ok;
+  $('bDest').value = d.dest_batch; $('ver').textContent = `v${d.version} · Library ${d.library}` + (d.library_check[0] ? ' · signed' : '');
+  if (!d.library_check[0]) {             // changed outside an official update: charting stops, except on the owner's PC
+    $('ver').textContent += d.owner ? ' · unsigned changes' : ' · NOT OFFICIAL';
+    $('ver').title = d.library_check[1]; $('ver').style.color = d.owner ? 'var(--warn)' : 'var(--bad)';
+  } $('dtxDir').value = d.dtxmania; $('dtxBox').hidden = d.dtxmania_ok;
   if (d.last_job) start(d.last_job); })
   .catch(() => $('srv').textContent = 'server not running');
 

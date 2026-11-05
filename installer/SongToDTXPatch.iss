@@ -37,6 +37,16 @@ WelcomeLabel2=This updates Song to DTX to {#AppVer} with charting library {#LibV
 Source: "{#Stage}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [InstallDelete]
+; an older version's plain rule files: the Library now ships compiled (.pyd)
+Type: files; Name: "{app}\tempo.py"
+Type: files; Name: "{app}\sounds.py"
+Type: files; Name: "{app}\genres.py"
+Type: files; Name: "{app}\drumkit.py"
+Type: files; Name: "{app}\live_mv.py"
+Type: files; Name: "{app}\preview.py"
+Type: files; Name: "{app}\dtx.py"
+Type: files; Name: "{app}\archive.py"
+Type: files; Name: "{app}\library_check.py"
 ; compiled copies of the old code
 Type: filesandordirs; Name: "{app}\__pycache__"
 Type: filesandordirs; Name: "{app}\app\__pycache__"

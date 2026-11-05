@@ -112,6 +112,10 @@ def trim(src: Path, dst: Path, start: int, end: int, title: str | None = None) -
     return {"bars": stop - shift, "start": start, "end": end, "seconds": round(t1 - t0, 1)}
 
 
-if __name__ == "__main__":
+def main():
     a = sys.argv[1:]
     print(trim(Path(a[0]), Path(a[1]), int(a[2]), int(a[3])))
+
+
+if __name__ == "__main__":
+    main()
