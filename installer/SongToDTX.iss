@@ -2,9 +2,13 @@
 ;   ISCC /DEdition=NVIDIA /DStage=<stage dir> /DOut=<output dir> SongToDTX.iss
 ;   ISCC /DEdition=CPU    /DStage=<stage dir> /DOut=<output dir> SongToDTX.iss
 ; The NVIDIA edition is over 2 GB packed, so it is split into Setup.exe + .bin files (keep them together).
+; /DSlice=1300000000 makes the .bin parts that size (a GitHub release takes files under 2 GB).
 
 #ifndef Edition
   #define Edition "NVIDIA"
+#endif
+#ifndef Slice
+  #define Slice "max"
 #endif
 #define AppVer Trim(FileRead(FileOpen(Stage + "\VERSION")))
 
@@ -29,7 +33,7 @@ SolidCompression=yes
 LZMANumBlockThreads=8
 #if Edition == "NVIDIA"
 DiskSpanning=yes
-DiskSliceSize=max
+DiskSliceSize={#Slice}
 #endif
 WizardStyle=modern
 SetupIconFile={#Stage}\app\icon.ico
