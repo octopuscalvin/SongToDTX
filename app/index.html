@@ -57,13 +57,16 @@ pre{background:var(--field);border:1px solid var(--line);border-radius:var(--r);
 .tool select{padding:3px 6px;font-size:12px}
 .genres{margin:12px 0 18px}.genres .hint{font-size:12px}
 .glist{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 6px}
-.gchip,.gbtn{display:flex;align-items:center;gap:6px;padding:5px 11px;border:1px solid var(--line);border-radius:999px;font-size:13px;cursor:pointer;user-select:none;background:none;color:var(--text);font-family:inherit}
+.glist{align-items:center}
+.gchip,.gbtn{box-sizing:border-box;height:30px;margin:0;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid var(--line);border-radius:999px;font-family:inherit;font-size:13px;line-height:1;cursor:pointer;user-select:none;background:none;color:var(--text);white-space:nowrap}
+.gchip:hover,.gbtn:hover{border-color:var(--line2)}
+.gauto{margin-top:2px}.gauto .hint{font-size:12px}
 .gchip input{display:none}
 .gchip:has(input:checked),.gbtn.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
 .gbtn::after{content:"▾";font-size:10px;opacity:.7}
 .gwrap{position:relative}
 .gmenu{position:absolute;z-index:20;top:calc(100% + 6px);left:0;min-width:250px;max-width:330px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:6px}
-.gmenu label{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px}
+.gmenu label{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;margin:0;border-radius:6px;cursor:pointer;font-size:13px;color:var(--text)}
 .gmenu label:hover{background:var(--field)}
 .gmenu input{margin-top:2px}
 .gmenu small{display:block;color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px}
@@ -200,6 +203,7 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
     <div class="genres" id="genres">
       <b>Genre</b> <span class="hint">pick at least one; several are fine</span>
       <div class="glist" id="glist"></div>
+      <div class="glist gauto" id="gauto"><span class="hint">Not sure?</span></div>
       <div class="hint" id="genreTxt"></div>
     </div>
     <div class="bar"><div id="prog"></div></div>
@@ -352,13 +356,14 @@ function showJacket(p) { $('jacket').innerHTML = p ? `<img alt="jacket" src="${f
 let GENRES = {}, genreBoxes = [];          // key -> {name, text}; from the server (genres.py)
 function buildGenres(groups) {
   const list = $('glist'); list.innerHTML = '';
+  $('gauto').querySelectorAll('label').forEach(l => l.remove());
   for (const grp of groups) {
     grp.genres.forEach(g => GENRES[g.key] = g);
-    if (!grp.group || grp.genres.length === 1) {          // a single choice: a chip of its own
+    if (!grp.group || grp.genres.length === 1) {          // a single choice: a chip of its own ("don't know": its own row)
       for (const g of grp.genres) {
         const l = document.createElement('label'); l.className = 'gchip'; l.title = g.text;
         l.innerHTML = `<input type="checkbox" value="${g.key}"><span></span>`; l.querySelector('span').textContent = g.name;
-        list.append(l);
+        (grp.group ? list : $('gauto')).append(l);
       }
       continue;
     }
@@ -375,7 +380,7 @@ function buildGenres(groups) {
     m.onclick = e => e.stopPropagation();
     w.append(b, m); list.append(w);
   }
-  genreBoxes = [...list.querySelectorAll('input')];
+  genreBoxes = [...document.querySelectorAll('#glist input, #gauto input')];
   genreBoxes.forEach(x => x.onchange = () => {  // "don't know" and the genres exclude each other
     if (x.checked) genreBoxes.forEach(o => { if (o !== x && (x.value === 'auto' || o.value === 'auto')) o.checked = false; });
     genreShow();

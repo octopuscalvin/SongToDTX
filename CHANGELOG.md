@@ -2,6 +2,50 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## 0.8.0
+
+- Genre (`--genre metal,progressive`, `genres.py`; app: step 2, picked before Generate): the song's
+  genre is the tool's starting point. 21 genres in groups - Rock (Rock, Visual, Punk, Funk), Metal
+  (Metal, Speed Metal), Pop (Pop, 80's 90's pop, 70's pop), Jazz, Latin & Ballad (Jazz, Bossa, Waltz,
+  Tango, Ballade, Swing, Fusion), Progressive, Digital (EDM, City Pop, DIGI Rock) - each setting the
+  tuning its drumming usually needs: double kick, tempo ceiling, odd-bar cost, following a drifting
+  tempo, triplet feel, ride, soft kicks, kick check, kit sound. Several genres can be ticked: what one
+  changes is used, and where two change the same setting they meet halfway. "I don't know WTF is it"
+  (no genre) decides everything from the audio, as before. The app shows the groups as buttons that
+  open their genres. The chart remembers its genre; change it and Rebuild when the first chart looks
+  wrong. Batch folders use it too.
+- Ghost notes (Funk, Jazz, Fusion): a second, softer snare pass of the transcriber; a soft snare is
+  kept where the separated snare drum has a hit and is written at half volume.
+- Digital drum kit (EDM, City Pop, DIGI Rock): old-school drum-machine sounds made by `make_kit.py`
+  into `kit\digi` the first time (your own samples under the same names there win).
+- Cymbal rolls (`--cymbal-roll "9.5; 63-66; 114.5-115.5"`): a roll or soft swell on the cymbals that
+  has no strokes the transcriber can hear is written as 16ths, right cymbal on the 8ths and left
+  cymbal between, with a volume per half bar that follows how loud the cymbals are (a swell from
+  silence steps up). Stretches where the cymbals keep sounding with no notes are listed for checking.
+- Kick rolls: a fast double-bass roll that blurs into one rumble (the kick stem's low end never
+  drops through the beat and pulses at the 16th or 32nd rate) gets the whole 16th / 32nd stream,
+  split between the feet. Runs of 2+ beats only; a single such beat is listed instead.
+- Hi-hat phrases: consecutive 8th hi-hat groove bars keep one sound - all open, all closed, or open
+  and closed in turn (only when the closed ones are really shut; listed) - decided from the phrase's median ring
+  instead of hit by hit.
+- Tempo map: two tempo switches that crossed while being placed no longer leave a section running
+  backwards in time (the short section between them is dropped and its neighbours' switch searched
+  again). A real tempo step of 2-4% between two long sections (each fits its own steady tempo far
+  better than one shared tempo) is no longer merged as a "drifting take"; slow live drifts still are.
+- Add MV, live take (`add_mv.py --live`, app: "Live take or another tempo"): a video whose music
+  runs at another, changing tempo (a live performance, a slower or faster version) is sped up and
+  slowed down moment by moment so its drummer's hits meet the chart's music. Both recordings' drum
+  hits are matched in 8 s windows; parts without drums follow the harmony and are listed by measure.
+  The result reports how close the hits land.
+- Editor: double-click a hi-hat note, or select hi-hats and press O, to switch closed / open.
+- Library version (`LIBRARY`, shown beside the app version): the charting rules' own version,
+  starting at 1.0, also saved in each chart's `autochart.json`.
+- Update patch (`installer\make_patch.py`, `SongToDTXPatch.iss`): the app and its charting rules
+  only (about 2.5 MB), installed over either edition. It needs an existing install, keeps settings,
+  kit, cache and charts, and asks for the full installer when the Python packages changed.
+- App: a YouTube song with "Use the video as BGA" no longer fails at the end with "expected str,
+  bytes or os.PathLike object, not bool".
+
 ## 0.7.5
 
 - Windows installers (Inno Setup, `installer\`): an NVIDIA and a CPU edition with Python, packages,
@@ -34,13 +78,6 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   artist from each folder's name and the jacket from a picture in that folder or the song's own art.
 - Tempo grid: a very short tempo section that the previous section's switch has already passed no
   longer crashes the build ("cannot unpack non-iterable NoneType").
-- Kick rolls: a fast double-bass roll that blurs into one rumble (the kick stem's low end never
-  drops through the beat and pulses at the 16th or 32nd rate) gets the whole 16th / 32nd stream,
-  split between the feet. Runs of 2+ beats only; a single such beat is listed instead.
-- Hi-hat phrases: consecutive 8th hi-hat groove bars keep one sound - all open, all closed, or open
-  and closed in turn (only when the closed ones are really shut; listed) - decided from the phrase's median ring
-  instead of hit by hit.
-- Editor: double-click a hi-hat note, or select hi-hats and press O, to switch closed / open.
 - Ride groove: in a bar with 6+ ride hits (right hand on the ride, left on the snare) a closed
   hi-hat is the foot: it becomes a hi-hat pedal chip (LP) and the measures are listed.
 - Silent drums: any note where the separated drum stem is silent (40 dB or more under the song's
@@ -49,40 +86,6 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   attack test compares noise.)
 - Add MV: the video offset is the one most matching windows agree on; with a different edit a
   median of all windows could land on no real offset.
-- Add MV, live take (`add_mv.py --live`, app: "Live take or another tempo"): a video whose music
-  runs at another, changing tempo (a live performance, a slower or faster version) is sped up and
-  slowed down moment by moment so its drummer's hits meet the chart's music. Both recordings' drum
-  hits are matched in 8 s windows; parts without drums follow the harmony and are listed by measure.
-  The result reports how close the hits land.
-- Cymbal rolls (`--cymbal-roll "9.5; 63-66; 114.5-115.5"`): a roll or soft swell on the cymbals that
-  has no strokes the transcriber can hear is written as 16ths, right cymbal on the 8ths and left
-  cymbal between, with a volume per half bar that follows how loud the cymbals are (a swell from
-  silence steps up). Stretches where the cymbals keep sounding with no notes are listed for checking.
-- Tempo map: two tempo switches that crossed while being placed no longer leave a section running
-  backwards in time (the short section between them is dropped and its neighbours' switch searched
-  again). A real tempo step of 2-4% between two long sections (each fits its own steady tempo far
-  better than one shared tempo) is no longer merged as a "drifting take"; slow live drifts still are.
-- Genre (`--genre metal,progressive`, `genres.py`; app: step 2, picked before Generate): the song's
-  genre is the tool's starting point. 21 genres in groups - Rock (Rock, Visual, Punk, Funk), Metal
-  (Metal, Speed Metal), Pop (Pop, 80's 90's pop, 70's pop), Jazz, Latin & Ballad (Jazz, Bossa, Waltz,
-  Tango, Ballade, Swing, Fusion), Progressive, Digital (EDM, City Pop, DIGI Rock) - each setting the
-  tuning its drumming usually needs: double kick, tempo ceiling, odd-bar cost, following a drifting
-  tempo, triplet feel, ride, soft kicks, kick check, kit sound. Several genres can be ticked: what one
-  changes is used, and where two change the same setting they meet halfway. "I don't know WTF is it"
-  (no genre) decides everything from the audio, as before. The app shows the groups as buttons that
-  open their genres. The chart remembers its genre; change it and Rebuild when the first chart looks
-  wrong. Batch folders use it too.
-- Ghost notes (Funk, Jazz, Fusion): a second, softer snare pass of the transcriber; a soft snare is
-  kept where the separated snare drum has a hit and is written at half volume.
-- Digital drum kit (EDM, City Pop, DIGI Rock): old-school drum-machine sounds made by `make_kit.py`
-  into `kit\digi` the first time (your own samples under the same names there win).
-- App: a YouTube song with "Use the video as BGA" no longer fails at the end with "expected str,
-  bytes or os.PathLike object, not bool".
-- Library version (`LIBRARY`, shown beside the app version): the charting rules' own version,
-  starting at 1.0, also saved in each chart's `autochart.json`.
-- Update patch (`installer\make_patch.py`, `SongToDTXPatch.iss`): the app and its charting rules
-  only (about 2.5 MB), installed over either edition. It needs an existing install, keeps settings,
-  kit, cache and charts, and asks for the full installer when the Python packages changed.
 - Octopus app icon (`app\icon.png`, `app\icon.ico`): browser tab, installer, Start menu and desktop
   shortcuts.
 
