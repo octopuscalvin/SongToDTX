@@ -100,15 +100,17 @@ def trim(src: Path, dst: Path, start: int, end: int, title: str | None = None) -
     chips.append(dtx.Chip(stop - shift + 1, Fraction(0), "61", END_ID))
 
     heads = {k: v for k, v in ch.headers.items()
-             if not (k.startswith("WAV") or k.startswith("VOLUME") or k == "PREVIEW")}
+             if not (k.startswith(("WAV", "VOLUME", "PAN")) or k == "PREVIEW")}
     heads["BPM"] = f"{bpm_at(ch, start):.2f}"
     if title:
         heads["TITLE"] = title
     wavs = {k[3:]: v for k, v in ch.headers.items() if k.startswith("WAV") and len(k) == 5}
     wavs[END_ID] = END_WAV
     vols = {k[6:]: int(v) for k, v in ch.headers.items() if k.startswith("VOLUME") and len(k) == 8 and v.isdigit()}
+    pans = {k[3:]: int(v) for k, v in ch.headers.items() if k.startswith("PAN") and len(k) == 5
+            and v.lstrip("-").isdigit()}
     mlen = {m - shift: v for m, v in ch.measure_len.items() if start <= m <= stop}
-    dtx.write_dtx(dst / "mstr.dtx", heads, wavs, chips, mlen, ch.bpm_defs, vols)
+    dtx.write_dtx(dst / "mstr.dtx", heads, wavs, chips, mlen, ch.bpm_defs, vols, pans)
     return {"bars": stop - shift, "start": start, "end": end, "seconds": round(t1 - t0, 1)}
 
 

@@ -119,6 +119,51 @@ def write_digi(folder):
             sf.write(str(p), (0.89 * y / np.max(np.abs(y))).astype(np.float32), SR, subtype="PCM_16")
 
 
+def make_stroke(name):
+    """Snare strokes: a cross-stick is the stick laid across the head clicking on the rim (woody
+    click, no wires, no head body); a rim shot is head and rim at once (snare plus a bright ring)."""
+    if name == "snare_xstick":
+        x = t(0.25)
+        return (np.sin(2 * np.pi * 1250 * x) * env(0.25, 0.018) + 0.6 * np.sin(2 * np.pi * 2700 * x) * env(0.25, 0.01)
+                + 0.5 * band(noise(0.25), 900, 4000) * env(0.25, 0.008))
+    if name == "snare_rim":
+        return make("snare") + 0.7 * np.sin(2 * np.pi * 1700 * t(0.35)) * env(0.35, 0.05) \
+            + 0.6 * band(noise(0.35), 2500, 9000) * env(0.35, 0.02)
+    if name == "snare_normal":
+        return make("snare")
+    raise KeyError(name)
+
+
+def make_perc(name):
+    """Hand percussion: a wood block / clave is one short high knock; a cowbell two metal tones."""
+    x = t(0.3)
+    if name == "woodblock":
+        return np.sin(2 * np.pi * 1850 * x) * env(0.3, 0.03) + 0.3 * band(noise(0.3), 1500, 5000) * env(0.3, 0.004)
+    if name == "cowbell":
+        return (np.sign(np.sin(2 * np.pi * 562 * x)) + 0.8 * np.sign(np.sin(2 * np.pi * 845 * x))) * env(0.3, 0.09)
+    raise KeyError(name)
+
+
+def write_perc(folder):
+    """The synthesized hand percussion into folder (kept if already there)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in ("woodblock", "cowbell"):
+        p = folder / f"{name}.wav"
+        if not p.exists():
+            y = make_perc(name)
+            sf.write(str(p), (0.89 * y / np.max(np.abs(y))).astype(np.float32), SR, subtype="PCM_16")
+
+
+def write_strokes(folder):
+    """The synthesized snare strokes into folder (kept if already there)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in ("snare_normal", "snare_rim", "snare_xstick"):
+        p = folder / f"{name}.wav"
+        if not p.exists():
+            y = make_stroke(name)
+            sf.write(str(p), (0.89 * y / np.max(np.abs(y))).astype(np.float32), SR, subtype="PCM_16")
+
+
 def main():
     force = "--force" in sys.argv
     KIT_DIR.mkdir(parents=True, exist_ok=True)

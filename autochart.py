@@ -41,6 +41,7 @@ from drumkit import KIT, KIT_VOLUME
 
 HERE = Path(__file__).resolve().parent
 KIT_DIR, CACHE, VENDOR = config.KIT_DIR, config.CACHE, config.VENDOR
+PAN = {"16": 100, "1A": -100}   # #PAN of the cymbals: right cymbal from the right, left cymbal from the left
 
 # ADTOF MIDI pitch -> DTX channel
 ADTOF_TO_CH = {35: "13", 38: "12", 47: "14", 42: "11", 49: "16"}
@@ -1901,13 +1902,13 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
           bar_hints: str = "", tempo_at: list[int] | None = None, max_bpm: float = 220.0,
           backbeat: str = "", half: bool = False, kick_check: bool = False,
           beat_grid: str = "", kit_file: Path | None = None, snare_match: bool = False,
-          volume: int = 100, dynamics: bool = False, preview: Path | None = None,
+          volume: int = 80, dynamics: bool = False, preview: Path | None = None,
           preimage: Path | None = None, dlevel: int = 50, ride_foot: bool = False,
           merge_bars: int = 0, groove: Path | None = None, swing: int = 0,
           tempo_from: str = "", crash: str = "", snare24: bool = False,
           score: Path | None = None, score_first: int = 2, video: Path | None = None,
           fixed_bpm: float = 0.0, game_style: bool = False, grid_from: Path | None = None,
-          cymbal_roll: str = "", genre: str = "") -> Path:
+          cymbal_roll: str = "", genre: str = "", strokes: bool = False) -> Path:
     import soundfile as sf
     out_dir.mkdir(parents=True, exist_ok=True)
     g = apply_genre(genre)
@@ -1916,8 +1917,8 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     snare24, ride_foot = snare24 or g.get("snare24", False), ride_foot or g.get("ride_foot", False)
     kick_check, snare_match = kick_check or g.get("kick_check", False), snare_match or g.get("snare_match", False)
     swing = swing or g.get("swing", 0)
-    if g.get("kit") == "digi" and not kit_file:
-        kit_file = drumkit.digital_kit()
+    strokes = strokes or g.get("snare_strokes", False)
+    kit_dir = drumkit.digital_kit() if g.get("kit") == "digi" and not kit_file else KIT_DIR
     print("[1/5] separating stems ...")
     drums, rest = separate(audio)
     duration = sf.info(str(rest)).duration
@@ -2069,6 +2070,27 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
         notes = cymbal_roll_hints(notes, starts, T, cymbal_roll, drums)
     if not score:
         unseen_rolls(notes, starts, T, drums, tom_log)
+    stroke_of, perc, twice = {}, {}, set()
+    if strokes and not score:
+        stroke_of = sounds.snare_strokes(notes, drums, drum_parts(drums)["snare"], drumkit.snare_kit())
+    if not score:                                # wood block / clave / cowbell heard as a tom
+        perc = sounds.tom_percussion(notes, drums, drumkit.perc_kit(), drumkit.tom_files())
+        if perc:
+            pt = np.array(sorted(n.t for n in notes if id(n) in perc))
+            twice = {id(n) for n in notes if n.ch == "12" and stroke_of.get(id(n), ("",))[0] == "cross"
+                     and np.min(np.abs(pt - n.t)) < 0.03}      # the same click also taken for a cross-stick
+            notes = [n for n in notes if id(n) not in twice]
+            stroke_of.update(perc)
+    bs = np.array(starts)
+    for kind, what, where in (("cross", "cross-stick", "snare played as a"), ("rim", "rim shot", "snare played as a"),
+                              ("wood", "wood block / clave", "heard on the toms:"), ("cowbell", "cowbell", "heard on the toms:")):
+        ns = [n for n in notes if stroke_of.get(id(n), ("",))[0] == kind]
+        if ns:
+            ms = sorted({int(np.searchsorted(bs, n.q, side="right")) for n in ns})
+            print(f"      {what}: {len(ns)} notes -> {', '.join(sorted({stroke_of[id(n)][1].name for n in ns}))}"
+                  + (f" ({len(twice)} same clicks dropped from the snare)" if kind == "wood" and twice else ""))
+            tom_log.append(f"{where} {what} ({len(ns)} hits, its own sample) in measures "
+                           f"{', '.join(f'{m:03d}' for m in ms)} - check by ear")
     if game_style:
         notes = ride_on_cymbal(notes)
 
@@ -2096,14 +2118,20 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     shutil.copy2(bgm_src, out_dir / bgm_name)
     wavs = {"01": bgm_name}
     volumes: dict[str, int] = {}
-    wav_of, table = sounds.dress(notes, KIT, drum_parts(drums) if (snare_match or dynamics) else None,
-                                 kit_file, snare_match, volume, dynamics, kit_volume=KIT_VOLUME)
+    wav_of, table = sounds.dress(notes, drumkit.kit_map(kit_dir) if kit_dir != KIT_DIR else KIT,
+                                 drum_parts(drums) if (snare_match or dynamics) else None,
+                                 kit_file, snare_match, volume, dynamics, default_dir=kit_dir,
+                                 kit_volume=KIT_VOLUME, strokes=stroke_of)
+    pans: dict[str, int] = {}
     for n in notes:
         n.wav = wav_of[id(n)]
+        if n.ch in PAN:                          # crash right / left cymbal: heard from that side
+            pans[n.wav] = PAN[n.ch]
     names: dict[Path, str] = {}
     for wid, (src, vol) in sorted(table.items()):
         if src not in names:   # two library files may share a name (Snare.ogg)
-            nm = src.name if src.name not in names.values() else f"{src.parent.name}_{src.name}"
+            # Windows file names ignore case: snare.ogg and Snare.ogg are one file
+            nm = src.name if src.name.lower() not in {v.lower() for v in names.values()} else f"{src.parent.name}_{src.name}"
             names[src] = nm
             shutil.copy2(src, out_dir / nm)
         wavs[wid] = names[src]
@@ -2117,7 +2145,7 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     chips, measure_len, bpm_defs, base_bpm = layout(notes, T, bpms, starts, note_offset, bar)
     headers["BPM"] = f"{base_bpm:.2f}"
     path = out_dir / "mstr.dtx"
-    dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes)
+    dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes, pans)
     # A tempo switch without a ramp leaves a part-tatum the chart can't show, so notes after it
     # sit off by that much (e.g. +10 ms after a drumless intro). Re-aim the BGM at the
     # notes as written; charts within 3 ms are left alone.
@@ -2128,12 +2156,12 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
         note_offset += TARGET_LAG - d
         print(f"      notes land {d * 1000:+.1f} ms after the hits -> BGM shift {note_offset * 1000:+.1f} ms")
         chips, measure_len, bpm_defs, base_bpm = layout(notes, T, bpms, starts, note_offset, bar)
-        dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes)
+        dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes, pans)
     prev = None
     if not preview:   # first build: a clip of the original song (never the drumless BGM)
         prev = preview_sound.write(path, audio)
         headers["PREVIEW"] = "preview.ogg"
-        dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes)
+        dtx.write_dtx(path, headers, wavs, chips, measure_len, bpm_defs, volumes, pans)
         print(f"      preview: measure {prev['bar']:03d}, {prev['bars']} bars of the original song")
     if video:
         add_video(path, Path(video), out_dir)
@@ -2194,7 +2222,7 @@ def main():
                     help="JSON: lane -> [sample file, volume] (your own samples)")
     ap.add_argument("--snare-match", action="store_true",
                     help="medley: per stretch pick the library snare closest to the recorded one")
-    ap.add_argument("--volume", type=int, default=100, help="#VOLUME of every drum chip")
+    ap.add_argument("--volume", type=int, default=80, help="#VOLUME of every drum chip (the hi-hat pedal keeps 35)")
     ap.add_argument("--dynamics", action="store_true", help="3 volume steps per lane by hit strength")
     ap.add_argument("--preview", type=Path, default=None, help="preview sound (#PREVIEW)")
     ap.add_argument("--preimage", type=Path, default=None, help="preview picture (#PREIMAGE)")
@@ -2231,6 +2259,9 @@ def main():
     ap.add_argument("--score", type=Path, default=None,
                     help="score mode: notes from this drum-score transcription (score.txt), audio gives the grid")
     ap.add_argument("--score-first", type=int, default=2, help="measure that score bar 1 goes into")
+    ap.add_argument("--snare-strokes", action="store_true",
+                    help="snare hits played as a cross-stick or a rim shot get that sample from the snare kit "
+                         "(settings.json snare_kit_dir); on for genres that use them")
     ap.add_argument("--genre", default="auto",
                     help="the song's genre, one or several ('metal,progressive'): " + ", ".join(genres.GENRES))
     ap.add_argument("--video", type=Path, default=None,
@@ -2241,7 +2272,7 @@ def main():
           a.kit, a.snare_match, a.volume, a.dynamics, a.preview, a.preimage, a.dlevel, a.ride_foot,
           a.merge, a.groove, a.swing_hats, a.tempo_from, a.crash, a.snare_24,
           a.score, a.score_first, a.video, a.bpm, a.game_style, a.grid_from,
-          a.cymbal_roll, a.genre)
+          a.cymbal_roll, a.genre, a.snare_strokes)
     # the options this chart was made with, so a rebuild (e.g. from the app) can repeat them
     meta = a.out_dir / "autochart.json"
     info = json.loads(meta.read_text())

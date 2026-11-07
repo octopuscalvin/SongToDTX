@@ -21,6 +21,10 @@ KIT_DIR = _dir("kit_dir", HERE / "kit")                # drum samples, see drumk
 DTXMANIA = _dir("dtxmania_dir", HERE.parent / "DTXMania")   # DTXManiaNX.exe / DTXCreator.exe / DTXFiles
 SAMPLE_DIRS = [Path(p) for p in SETTINGS.get("sample_dirs", [])]   # extra snare/kick samples for --snare-match
 EDITING_DIR = _dir("editing_dir", Path())              # batch: finished albums from here move to completed\
+# snare strokes (normal, rim shot, cross-stick): file names say which; make_kit.py fills it the first time
+SNARE_KIT = _dir("snare_kit_dir", KIT_DIR / "snare")
+# hand percussion heard on the tom lanes (wood block, clave, cowbell); file names say which
+PERC_KIT = _dir("perc_kit_dir", KIT_DIR / "perc")
 
 
 def device() -> str:

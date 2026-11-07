@@ -182,7 +182,8 @@ def sjis_safe(text: str) -> str:
 
 def write_dtx(path: str | Path, headers: dict[str, str], wavs: dict[str, str],
               chips: list[Chip], measure_len: dict[int, float] | None = None,
-              bpm_defs: dict[str, float] | None = None, volumes: dict[str, int] | None = None) -> None:
+              bpm_defs: dict[str, float] | None = None, volumes: dict[str, int] | None = None,
+              pans: dict[str, int] | None = None) -> None:
     lines = ["; Created by Song to DTX", ""]
     for k, v in headers.items():
         v = sjis_safe(v)
@@ -197,6 +198,8 @@ def write_dtx(path: str | Path, headers: dict[str, str], wavs: dict[str, str],
         lines.append(f"#WAV{k}: {v}")
         if k in (volumes or {}):
             lines.append(f"#VOLUME{k}: {volumes[k]}")
+        if (pans or {}).get(k):                  # -100 left .. 100 right
+            lines.append(f"#PAN{k}: {pans[k]}")
     lines.append("")
     # DTXMania keeps a bar length (ch02) until the next ch02, so write every change, including
     # the return to 1.0 after an odd bar. measure_len lists only the non-4/4 measures.

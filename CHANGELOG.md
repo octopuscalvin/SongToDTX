@@ -2,6 +2,25 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## Unreleased
+
+- Snare strokes (`--snare-strokes`; on for Bossa, Jazz, Ballade, Swing, Tango, Funk, Fusion, 70's and
+  80's 90's pop, City Pop): a snare hit played as a cross-stick (side stick: woody click, no head
+  body) or a rim shot gets that sound, the closest sample of its kind in the snare kit
+  (settings.json "snare_kit_dir"; file names say the stroke: xstick / cross / side stick, rim). An
+  unclear click next to a cross-stick counts as one too. The measures are listed for checking. A
+  synthesized cross-stick and rim shot are made when the kit has none. Kit sound matching no longer
+  picks a cross-stick as the normal snare.
+- Drum chip volume: every drum chip is at #VOLUME 80 by default (`--volume` changes it); the hi-hat
+  pedal keeps its own 35 whatever the drums' volume. The right cymbal is panned right (#PAN 100), the
+  left cymbal left (-100). The digital kit follows the same volumes.
+- Hand percussion: a tom note that is really a wood block, clave or cowbell (short high knock, no tom
+  body) keeps its lane and gets that sound from the percussion kit (settings.json "perc_kit_dir";
+  synthesized ones otherwise). A click also taken for a snare cross-stick is kept once. The measures
+  are listed for checking.
+- Two kit samples whose names differ only in upper / lower case (snare.ogg, Snare.ogg) no longer
+  overwrite each other in the chart folder (Windows file names ignore case).
+
 ## 0.8.0
 
 - Genre (`--genre metal,progressive`, `genres.py`; app: step 2, picked before Generate): the song's
