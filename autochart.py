@@ -80,11 +80,14 @@ def cache_key(audio: Path) -> str:
 # ---- 1. source separation ---------------------------------------------------
 def separate(audio: Path) -> tuple[Path, Path]:
     out = CACHE / "demucs" / cache_key(audio)   # by full path: two folders can hold the same file name
-    stem_dir = out / "htdemucs" / audio.stem
+    old = out / "htdemucs" / audio.stem           # where separations before the fixed folder name went
+    stem_dir = old if (old / "drums.wav").exists() else out / "htdemucs" / "track"
     drums, rest = stem_dir / "drums.wav", stem_dir / "no_drums.wav"
     if not drums.exists():
+        # a fixed folder name: Windows drops a trailing space or dot from a folder ("Song (Live) .wav"),
+        # so a folder named after the file could not be found again
         subprocess.run([sys.executable, "-m", "demucs", "-n", "htdemucs", "--two-stems", "drums",
-                        "-o", str(out), str(audio)], check=True,
+                        "--filename", "track/{stem}.{ext}", "-o", str(out), str(audio)], check=True,
                        env={**os.environ, "PYTHONIOENCODING": "utf-8"})  # CJK paths in its log
     return drums, rest
 

@@ -7,7 +7,7 @@
    "app/index.html": "bccf43cac6f77151f591328fcf055fbb991a4ed963efc1e5bc1648741e950012",
    "app/server.py": "9a04d607c5c7c475477d09208398c378980433ba726fb1da418146e649266f11",
    "archive.py": "cdb7cc7b31f236b45274270c036106fd0fd5f1c9b8cd09c173f9c85757782ce9",
-   "autochart.py": "de0de8c3c6346762701b181aff3c20d9e5b30d02202cf6e5c64f614176f93af8",
+   "autochart.py": "8b41227ec8a0c2e7b02024908feb5788d64ce44315ae763c133f360c4072362f",
    "batch_albums.py": "2b47af82fc5e1928795882e03205ce2f449c139fe17b21df15b76ed4ea8f1760",
    "config.py": "53f05f9b700318e90e97f4a2410264045ab4fac7e56a923f9c2e0049ee7b1281",
    "download_parts.py": "d273e98acaafc93dbfe2dfc9170f457063f8d750ccc0ee9143d864ca252ccbbe",
@@ -27,5 +27,5 @@
   "library": "1.0",
   "version": "0.8.0"
  },
- "signature": "HG/JJ8Im5bDzmRlIawR67Lt+1162rMXwK0N4rv0DtFtTveI/jJjTcYzh7zFYpbEPEpR25+l7Jkf+miq3H3hYESlRXbbOPpqOW0Ldu3WmUgXLM9BKS/wIpjEBPS3+w1luHsm6o4pyJuC9D/uA7k/qFoxFu6epNp/qHHLcwoQwrd1wfgksG86QquVzYTxKnHRqmFir1dnjBvODUznoewPd0BqldzkwF6bPpQdxrPlf9bipmVUVkDRBA5KSl1oAWqcnXhPMjx+GiAp/ZPdbi4VQIKGNGNpAxE7ucAm+jnLvpiRG+ZNhKyJo+du/qSR675o914LdRE0k4Z0udnpa57ubsA=="
+ "signature": "hgYwEI/3CRlXUW57eAz4W07/jO0njFuEIunvp4Z+bTGLNOd/fSjwS+8AAFqNJHhFUDKLoLYbP6zljrS0+8M/cw/OrtiQnkC3E/KDz8BWS3ZCzCR3JgGVWLp265M+B6AqRbZjJXNyt5/bSNYbRub0Hx9Mdo9Zuqve3hAs2qgk9Nszet6ZXrTSfGXulJ5ZHV/s/z8F7okB1ICDHnGebhm+JwKKcjxBBkvW4ScWQBhug4R9NxyeODajn/St2nje4JeW8oD+7DR5r+7HdS18PFO3tvXCIa4evwfgCsaoWMWFYL47us5+dHKgWUPAz9gfrMiQzEQUVb7y3UdNFkCcmtMCow=="
 }

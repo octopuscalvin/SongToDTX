@@ -54,6 +54,9 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
 - Update patch (`installer\make_patch.py`, `SongToDTXPatch.iss`): the app and its charting rules
   only (about 2.5 MB), installed over either edition. It needs an existing install, keeps settings,
   kit, cache and charts, and asks for the full installer when the Python packages changed.
+- A song whose file name ends with a space or a dot before the extension ("Song (Live) .mp3") no
+  longer stops at the drum separation ("demucs ... returned non-zero exit status 1"): Windows drops
+  that space from the separation's folder name, so it now always goes into a folder named "track".
 - App: a YouTube song with "Use the video as BGA" no longer fails at the end with "expected str,
   bytes or os.PathLike object, not bool".
 
