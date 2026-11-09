@@ -18,6 +18,22 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   body) keeps its lane and gets that sound from the percussion kit (settings.json "perc_kit_dir";
   synthesized ones otherwise). A click also taken for a snare cross-stick is kept once. The measures
   are listed for checking.
+- Static cymbals (`--static-cymbals`, for songs with a soft cymbal wash, piano songs): a quiet "cymbal"
+  that is really on the hi-hat stem becomes a hi-hat; a steady cymbal run on the 12-beat triplets is the
+  ride too; quiet crashes stay on the right cymbal - no more left-right-left-right crashes over a soft wash.
+- Foot on the beats (`--lp-quarters`): a bar with kick and snare but no hand hi-hat gets the hi-hat
+  pedal on every beat (3 in a 3/4 bar), as official 12-beat / march charts keep time - not in a bar
+  where the left foot plays the bass (a bass roll).
+- No hi-hat pedal within an 8th of a left-pedal kick (was a 16th): in a 12-beat bass roll the next
+  triplet is a third of a beat away.
+- Hand percussion: only the high and mid tom lanes are checked, and a tom's body is measured from 60 Hz,
+  so a floor tom is no longer taken for a wood block.
+- Snare dynamics (`--snare-dynamics`): every snare chip gets its own volume from how hard it was played
+  (5 % steps, down to half), for a soft / march snare; the check list suggests it when a song's snare
+  is often soft.
+- Swing genre: notes on the 8th triplets only; it no longer fills in a hi-hat pattern of its own.
+- Drum separation and the drum parts fall back to the CPU when the GPU fails (out of memory with memory
+  free, access violation); slower, but the chart gets made.
 - Two kit samples whose names differ only in upper / lower case (snare.ogg, Snare.ogg) no longer
   overwrite each other in the chart folder (Windows file names ignore case).
 

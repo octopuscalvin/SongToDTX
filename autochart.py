@@ -87,9 +87,16 @@ def separate(audio: Path) -> tuple[Path, Path]:
     if not drums.exists():
         # a fixed folder name: Windows drops a trailing space or dot from a folder ("Song (Live) .wav"),
         # so a folder named after the file could not be found again
-        subprocess.run([sys.executable, "-m", "demucs", "-n", "htdemucs", "--two-stems", "drums",
-                        "--filename", "track/{stem}.{ext}", "-o", str(out), str(audio)], check=True,
-                       env={**os.environ, "PYTHONIOENCODING": "utf-8"})  # CJK paths in its log
+        cmd = [sys.executable, "-m", "demucs", "-n", "htdemucs", "--two-stems", "drums",
+               "--filename", "track/{stem}.{ext}", "-o", str(out), str(audio)]
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}     # CJK paths in its log
+        if subprocess.run(cmd, env=env).returncode != 0 and config.device() != "cpu":
+            # a GPU driver can fail now and then (out of memory with memory free, access violation):
+            # the CPU takes longer but gets there
+            print("      separation failed on the GPU; separating on the CPU instead (slower) ...", flush=True)
+            subprocess.run(cmd + ["-d", "cpu"], env=env, check=True)
+        elif not drums.exists():
+            raise RuntimeError(f"drum separation failed for {audio.name}")
     return drums, rest
 
 
@@ -102,13 +109,25 @@ def drum_parts(drums: Path) -> dict[str, Path]:
     out = {s: drums.parent / f"larsnet_{s}.wav" for s in ("kick", "snare", "toms", "hihat", "cymbals")}
     if all(p.exists() for p in out.values()):
         return out
+    import torch
+    dev = config.device()
+    try:
+        return _larsnet(drums, out, dev)
+    except (torch.OutOfMemoryError, RuntimeError) as e:     # a GPU driver can fail now and then
+        if dev == "cpu":
+            raise
+        print(f"      drum parts failed on the GPU ({type(e).__name__}); splitting on the CPU instead ...", flush=True)
+        torch.cuda.empty_cache()
+        return _larsnet(drums, out, "cpu")
+
+
+def _larsnet(drums: Path, out: dict[str, Path], dev: str) -> dict[str, Path]:
     import soundfile as sf
     import torch
     import yaml
     sys.path.insert(0, str(LARSNET))
     from unet import UNet, UNetUtils
     cfg = yaml.safe_load((LARSNET / "config.yaml").read_text())
-    dev = config.device()
     utils = UNetUtils(device=dev)
     x, sr = sf.read(str(drums), dtype="float32", always_2d=True)
     if sr != cfg["global"]["sr"]:
@@ -340,6 +359,7 @@ class Note:
     t: float          # original audio time
     wav: str = ""     # sample id when not the lane's default (sounds.dress)
     vol: float = 1.0  # share of the lane's volume (soft cymbal rolls)
+    static: bool = False   # a quiet / static cymbal: stays on the right cymbal, no left-right alternation
 
 
 STRAIGHT = [Fraction(i, 4) for i in range(4)]      # 16ths (in beats)
@@ -378,21 +398,54 @@ def quantize(hits: list[tuple[float, int]], T: np.ndarray, bar_starts: list[int]
     return sorted(out.values(), key=lambda n: (n.q, n.ch))
 
 
-def refine_cymbals(notes: list[Note]) -> list[Note]:
-    """ADTOF has one class for crash+ride. Steady runs of cymbal hits -> ride;
-    remaining crashes alternate left/right (a charting choice, not audible)."""
+CYM_AS_HAT = 15.0   # dB: the hi-hat stem this much over the cymbal stem at a quiet "cymbal" hit: a hi-hat
+CYM_HAT_QUIET = -20.0   # ... when the cymbal stem is this far under the song's loud cymbal hits
+QUIET_CYM = -10.0   # dB under the song's loud cymbal hits: quieter crashes stay on the right cymbal
+STEADY = (Fraction(4, 3), 2, Fraction(8, 3), 4)   # 16ths between the hits of a steady run (12-beat too)
+
+
+def refine_cymbals(notes: list[Note], drums: Path | None = None) -> list[Note]:
+    """ADTOF has one class for crash+ride. Steady runs of cymbal hits -> ride. With the stems (static
+    cymbals): a quiet "cymbal" that is really on the hi-hat stem is a hi-hat, runs on the 12-beat
+    triplets are the ride too, and quiet crashes stay on the right cymbal (no left-right). Loud
+    crashes alternate left/right (a charting choice, not audible)."""
+    lv = hat = None
+    if drums is not None:
+        import librosa
+        parts = drum_parts(drums)
+        yc, sr = librosa.load(str(parts["cymbals"]), sr=22050, mono=True)
+        yh, _ = librosa.load(str(parts["hihat"]), sr=22050, mono=True)
+        db = lambda y, a, b: float(20 * np.log10(np.sqrt(np.mean(
+            y[max(int(a * sr), 0):max(int(b * sr), int(a * sr) + 1)] ** 2)) + 1e-9))
+        cyms = [n for n in notes if n.ch == "16"]
+        lv = {id(n): db(yc, n.t, n.t + 0.03) for n in cyms}
+        hat = {id(n): db(yh, n.t, n.t + 0.03) for n in cyms}
+        top = float(np.percentile(list(lv.values()), 90)) if lv else 0.0
+        lv = {k: v - top for k, v in lv.items()}
+        as_hat = 0
+        for n in cyms:
+            if hat[id(n)] - (lv[id(n)] + top) > CYM_AS_HAT and lv[id(n)] < CYM_HAT_QUIET:
+                n.ch = "11"
+                as_hat += 1
+        print(f"      cymbals: {as_hat} quiet 'cymbals' are on the hi-hat stem -> hi-hat")
     cy = {n.q for n in notes if n.ch == "16"}
-    for n in notes:
-        if n.ch == "16" and any(n.q - d in cy for d in (2, 4)) and any(n.q + d in cy for d in (2, 4)):
-            n.ch = "19"
+    steps = STEADY if lv is not None else (2, 4)
+    ride = [n for n in notes if n.ch == "16" and any(n.q - d in cy for d in steps) and any(n.q + d in cy for d in steps)]
+    if lv is not None:
+        print(f"      cymbals: {len(ride)} hits in steady runs -> ride")
+    for n in ride:
+        n.ch = "19"
     # an extra 16th between two ride hits is the ride too
-    ride = {n.q for n in notes if n.ch == "19"}
+    rq = {n.q for n in notes if n.ch == "19"}
     left = True
     for n in notes:
-        if n.ch != "16":
+        if n.ch != "16" or n.static:
+            continue
+        if lv is not None and lv[id(n)] < QUIET_CYM:     # a quiet crash: the right cymbal, no alternation
+            n.static = True
             continue
         # still counts in the left/right alternation so the other crashes keep their side
-        n.ch = "19" if n.q - 1 in ride and n.q + 1 in ride else "1A" if left else "16"
+        n.ch = "19" if n.q - 1 in rq and n.q + 1 in rq else "1A" if left else "16"
         left = not left
     return notes
 
@@ -613,11 +666,12 @@ def verify_hats(notes: list[Note], drums: Path, bar_starts: list[int], log: list
 
 
 def left_foot_busy(notes: list[Note]) -> list[Note]:
-    """No hi-hat pedal (1B) within a 16th of a left-pedal kick, unless a hand hat is there."""
+    """No hi-hat pedal (1B) within an 8th of a left-pedal kick (a bass roll keeps the left foot; a
+    12-beat triplet is a third of a beat), unless a hand hat is there."""
     lbd = np.array(sorted(float(n.q) for n in notes if n.ch == "1C"))
     hats = {n.q for n in notes if n.ch == "11"}
     return [n for n in notes if not (n.ch == "1B" and n.q not in hats and len(lbd)
-                                     and np.abs(lbd - float(n.q)).min() <= 1)]
+                                     and np.abs(lbd - float(n.q)).min() <= 2)]
 
 
 def double_kick(notes: list[Note], bar_starts: list[int], bpms: np.ndarray) -> list[Note]:
@@ -899,7 +953,7 @@ def crash_runs(notes: list[Note]) -> list[Note]:
     at: dict[Fraction, set[str]] = {}
     for n in notes:
         at.setdefault(n.q, set()).add(n.ch)
-    cys = sorted((n for n in notes if n.ch == "16"), key=lambda n: n.q)
+    cys = sorted((n for n in notes if n.ch == "16" and not n.static), key=lambda n: n.q)   # static ones stay right
     runs: list[list[Note]] = []
     for n in cys:
         if runs and n.q - runs[-1][-1].q <= 4 and not any(
@@ -1202,6 +1256,36 @@ def hat_rolls(notes: list[Note], bar_starts: list[int], T: np.ndarray, bpms: np.
     print(f"      hat rolls: {cut} hi-hats under a snare dropped; snare roll bars (hands off the hat, "
           f"pedal on the beats): {' '.join(f'{m:03d}' for m in roll_bars[:15]) or 'none'}")
     return out
+
+
+LP_QUARTER_SNARES = 2   # a bar with this many snares, a kick and no hand hi-hat ...
+
+
+def lp_quarters(notes: list[Note], bar_starts: list[int], T: np.ndarray) -> list[Note]:
+    """... keeps time with the left foot: a hi-hat pedal chip (LP) on every beat where the foot is
+    free (as official 12-beat / march charts write it; the chick is often not even heard)."""
+    bs = list(bar_starts)
+    by_bar: dict[int, list[Note]] = {}
+    for n in notes:
+        k = bisect.bisect_right(bs, n.q) - 1
+        if 0 <= k < len(bs) - 1:
+            by_bar.setdefault(k, []).append(n)
+    out, added, bars = list(notes), 0, []
+    lbd = np.array(sorted(float(n.q) for n in notes if n.ch == "1C"))
+    near_lb = lambda q: len(lbd) and np.abs(lbd - q).min() <= 2     # across the bar line too
+    for k, ns in by_bar.items():
+        chs = [n.ch for n in ns]
+        # the left foot rolling the bass (left pedal, LB) has no time for the hi-hat pedal
+        if chs.count("12") < LP_QUARTER_SNARES or "13" not in chs or {"11", "18", "1C"} & set(chs):
+            continue
+        busy = {n.q for n in ns if n.ch in ("1B", "1C")}
+        for q in range(bs[k], bs[k + 1], 4):
+            if Fraction(q) not in busy and not near_lb(q):
+                out.append(Note(Fraction(q), "1B", float(T[min(q, len(T) - 1)])))
+                added += 1
+        bars.append(k + 1)
+    print(f"      foot on the beats: {added} pedal chips in {len(bars)} bars without a hand hi-hat")
+    return sorted(out, key=lambda n: (n.q, n.ch))
 
 
 def foot_hat_spacing(notes: list[Note], bar_starts: list[int], T: np.ndarray) -> list[Note]:
@@ -1554,7 +1638,7 @@ def ride_foot_hats(notes: list[Note], drums: Path, T: np.ndarray, bar_starts: li
     lag = float(np.median([n.t - T[int(n.q)] for n in notes if n.q == int(n.q) and int(n.q) < len(T)]))
     out, have, moved, added = [], set(), 0, 0
     for n in notes:
-        if n.ch in ("16", "1A") and bar_of(n.q) in bars and n.q != bs[bar_of(n.q)]:
+        if n.ch in ("16", "1A") and bar_of(n.q) in bars and n.q != bs[bar_of(n.q)] and not n.static:
             n = Note(n.q, "19", n.t)        # ADTOF calls the ride crash too; crashes stay on beat 1
         if n.ch == "11" and bar_of(n.q) in bars:
             n = Note(n.q, "1B", n.t)
@@ -1836,10 +1920,11 @@ def review(T: np.ndarray, bpms: np.ndarray, starts: list[int], hits: list[tuple[
     return out
 
 
-def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_check, ride_foot, groove, swing):
+def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_check, ride_foot, groove, swing,
+                static_cymbals=False):
     """The audio pipeline's notes: transcription hits on the grid, then the per-song hint rules
     and the playability rules (score mode skips all of this). Returns the notes and the tom log."""
-    notes = spread_flat_fills(refine_toms(refine_cymbals(quantize(hits, T, starts)), drums), drums)
+    notes = spread_flat_fills(refine_toms(refine_cymbals(quantize(hits, T, starts), drums if static_cymbals else None), drums), drums)
     n_toms = sum(n.ch in ("14", "15", "17") for n in notes)
     tom_log: list[str] = []
     notes = find_tom_fills(notes, drums, starts, tom_log)
@@ -1908,7 +1993,8 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
           tempo_from: str = "", crash: str = "", snare24: bool = False,
           score: Path | None = None, score_first: int = 2, video: Path | None = None,
           fixed_bpm: float = 0.0, game_style: bool = False, grid_from: Path | None = None,
-          cymbal_roll: str = "", genre: str = "", strokes: bool = False) -> Path:
+          cymbal_roll: str = "", genre: str = "", strokes: bool = False, lp_quarter: bool = False,
+          static_cym: bool = False, snare_dyn: bool = False) -> Path:
     import soundfile as sf
     out_dir.mkdir(parents=True, exist_ok=True)
     g = apply_genre(genre)
@@ -1918,6 +2004,9 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     kick_check, snare_match = kick_check or g.get("kick_check", False), snare_match or g.get("snare_match", False)
     swing = swing or g.get("swing", 0)
     strokes = strokes or g.get("snare_strokes", False)
+    lp_quarter = lp_quarter or g.get("lp_quarters", False)
+    static_cym = static_cym or g.get("static_cymbals", False)
+    snare_dyn = snare_dyn or g.get("snare_dynamics", False)
     kit_dir = drumkit.digital_kit() if g.get("kit") == "digi" and not kit_file else KIT_DIR
     print("[1/5] separating stems ...")
     drums, rest = separate(audio)
@@ -2053,13 +2142,15 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
         notes, tom_log = close_open_hats(left_foot_busy(double_kick(score_notes(score, T, starts, score_first), starts, bpms))), []
     else:
         notes, tom_log = audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_check,
-                                     ride_foot, groove, swing)
+                                     ride_foot, groove, swing, static_cym)
     if ghosts:
         g = np.array(ghosts)
         soft = [n for n in notes if n.ch == "12" and np.min(np.abs(g - n.t)) < 0.002]
         for n in soft:
             n.vol = GHOST_VOL
         print(f"      ghost notes: {len(soft)} soft snares added (snare stem confirms them), at {GHOST_VOL:.0%} volume")
+    if lp_quarter:
+        notes = lp_quarters(notes, starts, T)
     notes = foot_hat_spacing(notes, starts, T)
     snare_rolls(notes, starts)
     notes = hat_rolls(notes, starts, T, bpms)
@@ -2118,10 +2209,16 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
     shutil.copy2(bgm_src, out_dir / bgm_name)
     wavs = {"01": bgm_name}
     volumes: dict[str, int] = {}
+    march = {} if score else sounds.march_levels(notes, drum_parts(drums))
+    if march and not snare_dyn:                   # only on request; the check list says it would fit
+        late.append(f"many snare hits are soft (a march / quiet snare): --snare-dynamics would give each its own volume")
+        march = {}
+    if march:
+        print(f"      snare dynamics: {len(set(march.values()))} volume levels over {len(march)} snares (a soft / march snare)")
     wav_of, table = sounds.dress(notes, drumkit.kit_map(kit_dir) if kit_dir != KIT_DIR else KIT,
                                  drum_parts(drums) if (snare_match or dynamics) else None,
                                  kit_file, snare_match, volume, dynamics, default_dir=kit_dir,
-                                 kit_volume=KIT_VOLUME, strokes=stroke_of)
+                                 kit_volume=KIT_VOLUME, strokes=stroke_of, march=march)
     pans: dict[str, int] = {}
     for n in notes:
         n.wav = wav_of[id(n)]
@@ -2259,6 +2356,14 @@ def main():
     ap.add_argument("--score", type=Path, default=None,
                     help="score mode: notes from this drum-score transcription (score.txt), audio gives the grid")
     ap.add_argument("--score-first", type=int, default=2, help="measure that score bar 1 goes into")
+    ap.add_argument("--snare-dynamics", action="store_true",
+                    help="a soft / march snare: every snare chip gets its own volume from how hard it was played")
+    ap.add_argument("--static-cymbals", action="store_true",
+                    help="many quiet / static cymbals (a soft ride wash, piano songs): quiet 'cymbals' on the "
+                         "hi-hat stem are hats, unclear steady runs stay on the right cymbal, quiet crashes don't "
+                         "alternate left / right")
+    ap.add_argument("--lp-quarters", action="store_true",
+                    help="bars with kick and snare but no hand hi-hat get the hi-hat pedal on every beat")
     ap.add_argument("--snare-strokes", action="store_true",
                     help="snare hits played as a cross-stick or a rim shot get that sample from the snare kit "
                          "(settings.json snare_kit_dir); on for genres that use them")
@@ -2272,7 +2377,7 @@ def main():
           a.kit, a.snare_match, a.volume, a.dynamics, a.preview, a.preimage, a.dlevel, a.ride_foot,
           a.merge, a.groove, a.swing_hats, a.tempo_from, a.crash, a.snare_24,
           a.score, a.score_first, a.video, a.bpm, a.game_style, a.grid_from,
-          a.cymbal_roll, a.genre, a.snare_strokes)
+          a.cymbal_roll, a.genre, a.snare_strokes, a.lp_quarters, a.static_cymbals, a.snare_dynamics)
     # the options this chart was made with, so a rebuild (e.g. from the app) can repeat them
     meta = a.out_dir / "autochart.json"
     info = json.loads(meta.read_text())

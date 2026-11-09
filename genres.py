@@ -74,9 +74,9 @@ GENRES: dict[str, dict] = {
     "ballad": {"name": "Ballade", "text": "Slow tempo (up to 110): a fast reading is counted at half; 6/8 and "
                "12/8 feels kept as triplets; a live drift followed.",
                "tune": {"TRIPLET_BIAS": 0.8, "tempo.DRIFT_MAX": 0.010}, "flags": {"max_bpm": 110.0, "snare_strokes": True}},
-    "swing": {"name": "Swing", "text": "12-beat (shuffle / 12/8) feel: triplets preferred, the late hi-hat on "
-              "the last triplet.",
-              "tune": {"TRIPLET_BIAS": 1.5}, "flags": {"swing": 24, "snare_strokes": True}},
+    "swing": {"name": "Swing", "text": "12-beat (12/8) feel: notes on the 8th triplets; only hi-hats that are "
+              "heard are written (no filled-in hat pattern).",
+              "tune": {"TRIPLET_BIAS": 1.5}, "flags": {"snare_strokes": True}},
     "fusion": {"name": "Fusion", "text": "Loud bass and guitar: kicks checked against the kick drum (no bass "
                "bleed); ghost notes, 16th detail and odd bars expected.",
                "tune": {"GHOST_TH": 0.15, "odd_bars": 0.8, "tempo.CHANGE_COST": 1.2},

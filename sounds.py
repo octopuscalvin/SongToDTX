@@ -137,13 +137,13 @@ def _attack_shape(y: np.ndarray, i: int, sr: int) -> np.ndarray:
     return v - v.mean()
 
 
-def _body_share(y: np.ndarray, i: int, sr: int) -> float:
-    """dB share of 150-400 Hz in the 40 ms from sample i."""
+def _body_share(y: np.ndarray, i: int, sr: int, lo: float = 150) -> float:
+    """dB share of lo-400 Hz in the 40 ms from sample i (a snare's head body; toms: from 60 Hz)."""
     n = int(0.04 * sr)
     seg = y[i:i + n]
     S = np.abs(np.fft.rfft(np.pad(seg, (0, n - len(seg))) * np.hanning(n), 8192)) ** 2
     f = np.fft.rfftfreq(8192, 1 / sr)
-    return float(10 * np.log10((S[(f >= 150) & (f < 400)].sum() + 1e-12) / (S[(f >= 60) & (f < 16000)].sum() + 1e-12)))
+    return float(10 * np.log10((S[(f >= lo) & (f < 400)].sum() + 1e-12) / (S[(f >= 60) & (f < 16000)].sum() + 1e-12)))
 
 
 def snare_strokes(notes, drums: Path, snare_stem: Path, kit: dict[str, list]) -> dict[int, tuple[str, Path]]:
@@ -211,7 +211,7 @@ def _cymbal_shape(y: np.ndarray, i: int, sr: int) -> np.ndarray:
 # Hand percussion on the tom lanes: a wood block, clave or cowbell hit is short and high with no tom
 # body; ADTOF hears it as a tom. On the Demucs drum track its attack is closer to the percussion sample.
 PERC_MARGIN = 2.0    # dB closer to a percussion sample than to any tom ...
-PERC_BODY = -12.0    # ... and the 150-400 Hz share of the drum track under this: hand percussion
+PERC_BODY = -12.0    # ... and the 60-400 Hz share of the drum track under this (no tom body): hand percussion
 PERC_RUN = (0.0, -6.0)   # next to one: closer at all, with the body share under -6 dB
 
 
@@ -225,7 +225,8 @@ def tom_percussion(notes, drums: Path, kit: dict[str, list], toms: list[Path]) -
     shape_of = lambda y: _attack_shape(y, max(int(np.argmax(np.abs(y) > 0.1 * np.abs(y).max())) - 40, 0), sr)
     perc = [(kind, p, shape_of(load(p))) for kind, files in kit.items() for p in files]
     tom = [shape_of(load(p)) for p in toms]
-    tn = sorted((n for n in notes if n.ch in ("14", "15", "17")), key=lambda n: n.t)
+    # high and mid tom lanes only: a floor tom's ring is low, nothing like a wood block
+    tn = sorted((n for n in notes if n.ch in ("14", "15")), key=lambda n: n.t)
     if not tn:
         return {}
     yd = load(drums)
@@ -234,7 +235,7 @@ def tom_percussion(notes, drums: Path, kit: dict[str, list], toms: list[Path]) -
         h = _attack_shape(yd, int(n.t * sr), sr)
         d_tom = min(float(np.sqrt(((h - k) ** 2).mean())) for k in tom)
         kind, p, d = min(((kd, pp, float(np.sqrt(((h - k) ** 2).mean()))) for kd, pp, k in perc), key=lambda x: x[2])
-        rows.append((d_tom - d, _body_share(yd, int(n.t * sr), sr), kind, p))
+        rows.append((d_tom - d, _body_share(yd, int(n.t * sr), sr, lo=60), kind, p))
     hit = [m > PERC_MARGIN and b < PERC_BODY for m, b, _, _ in rows]
     clear = list(hit)
     for i, (m, b, _, _) in enumerate(rows):
@@ -262,10 +263,25 @@ def loudness(notes, parts: dict[str, Path]) -> dict[int, float]:
     return out
 
 
+# March / quiet snare: when many snare hits are well under the strong ones, each snare chip gets its
+# own volume from how hard it was played (as official charts write soft snare patterns).
+MARCH_QUIET = -6.0    # dB under the song's strong snares ...
+MARCH_SHARE = 0.30    # ... this share of the snare hits or more: write the snare's dynamics
+MARCH_RANGE = 60.0    # dB per full volume: 0 dB -> 100 %, -30 dB -> 50 % (the softest), 5 % steps
+
+
+def march_levels(notes, parts: dict[str, Path]) -> dict[int, float]:
+    """note id -> volume share of each snare note, when the song's snare is played with dynamics."""
+    db = loudness([n for n in notes if n.ch == "12"], parts)
+    if not db or np.mean([v < MARCH_QUIET for v in db.values()]) < MARCH_SHARE:
+        return {}
+    return {k: round(float(np.clip(1 + v / MARCH_RANGE, 0.5, 1.0)) * 20) / 20 for k, v in db.items()}
+
+
 def dress(notes, kit: dict, parts: dict[str, Path] | None, kit_file: Path | None = None,
           snare_match: bool = False, volume: int = 100, dynamics: bool = False,
           log: list[str] | None = None, default_dir: Path = KIT_DIR, kit_volume: dict | None = None,
-          strokes: dict | None = None):
+          strokes: dict | None = None, march: dict | None = None):
     """Returns (wav id per note id, {wav id: (source file, volume)}). Without any option this is
     exactly the default kit at `volume` (ids from KIT); a lane in kit_volume has that volume as it is
     (the hi-hat pedal's 35 whatever the drums' volume)."""
@@ -292,6 +308,10 @@ def dress(notes, kit: dict, parts: dict[str, Path] | None, kit_file: Path | None
             p, v, _ = per_note[id(n)]
             share = next(s for lim, s in TIERS if db.get(id(n), 0.0) >= lim)
             per_note[id(n)] = (p, max(int(round(v * share)), 1), "")
+    for k, share in (march or {}).items():     # snare dynamics (march / quiet snare)
+        if k in per_note and share != 1.0:
+            p, v, _ = per_note[k]
+            per_note[k] = (p, max(int(round(v * share)), 1), "")
     for n in notes:   # a note at part of its lane's volume (a soft cymbal roll) gets its own id
         if getattr(n, "vol", 1.0) != 1.0:
             p, v, _ = per_note[id(n)]
