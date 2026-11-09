@@ -2,7 +2,7 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
-## Unreleased
+## 0.8.5 (Library 1.2)
 
 - Snare strokes (`--snare-strokes`; on for Bossa, Jazz, Ballade, Swing, Tango, Funk, Fusion, 70's and
   80's 90's pop, City Pop): a snare hit played as a cross-stick (side stick: woody click, no head

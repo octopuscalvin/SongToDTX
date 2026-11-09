@@ -1,8 +1,8 @@
 {
  "manifest": {
   "files": {
-   "LIBRARY": "5717e7c840171019a4eeab5b79a7f894a4986eaff93d04ec5b12c9a189f594bf",
-   "VERSION": "a66780da23103beaf12432b418508966b31a2a3a787f9468a5b6cdaa8667c1ef",
+   "LIBRARY": "44804414f85bef9588f60086587fd6e8871b39123c831ec129624f4d81a95fea",
+   "VERSION": "a92b0248b8baacfaf54e8d59caaca7d5e6b9a0a25ee140c81ea973b4ae25142f",
    "add_mv.py": "b8749af151b47afa05212de1244068c864431324f1a44d793cab654180bc9634",
    "app/index.html": "bccf43cac6f77151f591328fcf055fbb991a4ed963efc1e5bc1648741e950012",
    "app/server.py": "9a04d607c5c7c475477d09208398c378980433ba726fb1da418146e649266f11",
@@ -24,8 +24,8 @@
    "trim.py": "84a02cf586b9af84bb233f3556c1a9f1be8f9c424e8e8ecb6fbc11c2a62c0223",
    "video_score.py": "a465e85b8591b605e8f74de02cde13d8a346c153a44f57bfdac88fc2b7380150"
   },
-  "library": "1.0",
-  "version": "0.8.0"
+  "library": "1.2",
+  "version": "0.8.5"
  },
- "signature": "Dg0yqDb63UjZmaMB9GcIH8fBhFVEWfosmLOLlNbjnSho3omn5lOLx0S+b8b7J46AzxMkRCjxEtK/Q9XTzyHpWXPSKB1SG87Lfl7if3yXOVeAtbKH/qjOzRZrO6/z1unbG2ktGbwAjz3HzxP211GyDJPS4veJeTV7+cYZ8ZIPjGi8eZ61aD0LYZjj3aSEmQtJ12C6oBpeDdXfGPsWvuCVFBsNuaWqNtUXogw3RqXMOzQmFOGCTaDGkXJiGLtW+VY+Dsy8tFuFcS5v4qRojzb//jj3ZyoNK699uqaGLmOQaq+gCEVRn+32mktALRLHZDwl7epQxNqD4BIWW4XDe6Qy9Q=="
+ "signature": "a2Kgar9isbwX7T0HPHwA1x7MSDL3GqGEreJVyo9ChVDR22SEafoUtrllPAzDC3fDqV0knvJGlfNOb9m4pUtXjd+zkwA0u3UjCV4JzFyz3sHa4GoplaIT966vucjc0EUx6CEiNBHRafY1kUP+LiRQc5WwI/h546Vxu+BVHHDmbGdzF1Jcj5aiqEahJk47KEuas55I3oSBSrDsZubPTGPHjqJr+hcdo13R1/7R5JT0cG2+JnvOKAInoeYwKsiL/Yi/b/ajgQrign7IygAwldjnT63Da5kJD+CUU7l8MNxmxM9iynOWXxPWQGD4abheXB3SD4GFyk26WrsGpcNgjG0ODA=="
 }
