@@ -4,6 +4,11 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
 
 ## 0.8.5 (Library 1.2)
 
+- New genre Samba (Jazz, Latin & Ballad group, beside Fusion): surdo-style toms written from the tom drum
+  where the kick drum does not explain them (soft hi-hats give way, a kick with a silent kick drum
+  becomes the tom), lanes by pitch; kick pairs stay on the right foot (the usual 3+ / fast-16th split);
+  the CHECK list names the bars with added toms.
+- Player: Stop now always stops the song too (it kept playing after a few hundred drum hits).
 - Snare strokes (`--snare-strokes`; on for Bossa, Jazz, Ballade, Swing, Tango, Funk, Fusion, 70's and
   80's 90's pop, City Pop): a snare hit played as a cross-stick (side stick: woody click, no head
   body) or a rim shot gets that sound, the closest sample of its kind in the snare kit

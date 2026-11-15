@@ -869,7 +869,7 @@ async function playFromView() {
       const ev = P.events[P.i++], w = a.wavs[ev.wav]; if (!w) continue;
       const s = P.ac.createBufferSource(), g = P.ac.createGain(); s.buffer = w.buf; g.gain.value = w.vol / 100 * $('vDrum').value / 100;
       s.connect(g).connect(P.ac.destination); s.start(Math.max(now, start + ev.t - t0)); P.srcs.push(s);
-      if (P.srcs.length > 400) P.srcs.splice(0, 200);
+      s.onended = () => { const k = P.srcs.indexOf(s); if (k >= 0) P.srcs.splice(k, 1); };   // only finished hits leave the list (the BGM stays until Stop)
     }
   };
   sched(); P.timer = setInterval(sched, 25);
@@ -885,7 +885,7 @@ async function playFromView() {
 }
 function stopPlay() {
   if (!P.on) return; P.on = false; clearInterval(P.timer);
-  P.srcs.forEach(s => { try { s.stop(); } catch (e) {} }); P.srcs = []; $('playBtn').textContent = 'Play'; draw();
+  P.srcs.forEach(s => { s.onended = null; try { s.stop(); } catch (e) {} }); P.srcs = []; $('playBtn').textContent = 'Play'; draw();
 }
 $('playBtn').onclick = () => P.on ? stopPlay() : playFromView();
 $('vBgm').oninput = () => { if (P.bgmGain) P.bgmGain.gain.value = $('vBgm').value / 100; };

@@ -5,7 +5,7 @@ Each genre sets the tuning its drumming usually needs; what the audio clearly sh
   odd_bars       cost of non-4/4 bars, times the normal (>1 fewer odd bars, <1 more)
   bar_cost_16    cost of a 4/4 bar / bar_cost_12 of a 3/4 bar (a waltz swaps them)
 "flags" are build options: max_bpm, snare24, ride_foot, kick_check, snare_match, swing, kit,
-snare_strokes (cross-stick / rim shot samples from the snare kit).
+snare_strokes (cross-stick / rim shot samples from the snare kit), samba_toms (toms from the tom drum).
 Several genres blend: a setting one of them changes is used; where several change the same one
 they meet halfway (the mean), the highest max_bpm counts, a flag any of them sets is on."""
 from __future__ import annotations
@@ -18,7 +18,7 @@ GROUPS = [
     ("Rock", ["rock", "visual", "punk", "funk"]),
     ("Metal", ["metal", "speedmetal"]),
     ("Pop", ["pop", "8090pop", "70pop"]),
-    ("Jazz, Latin & Ballad", ["jazz", "bossa", "waltz", "tango", "ballad", "swing", "fusion"]),
+    ("Jazz, Latin & Ballad", ["jazz", "bossa", "waltz", "tango", "ballad", "swing", "fusion", "samba"]),
     ("Progressive", ["progressive"]),
     ("Digital", ["edm", "citypop", "digirock"]),
 ]
@@ -81,6 +81,11 @@ GENRES: dict[str, dict] = {
                "bleed); ghost notes, 16th detail and odd bars expected.",
                "tune": {"GHOST_TH": 0.15, "odd_bars": 0.8, "tempo.CHANGE_COST": 1.2},
                "flags": {"kick_check": True, "max_bpm": 240.0, "snare_strokes": True}},
+    "samba": {"name": "Samba", "text": "Brazilian beach / carnival groove: surdo-style toms written from the tom "
+              "drum (low toms over soft hi-hats), kick pairs (surdo 'ba-dum') on the right foot, 3+ "
+              "kicks a 16th apart split between the feet, soft kicks kept, cross-stick clave sounds.",
+              "tune": {"KICK_MIN_LEVEL": -26.0, "HAT_MIN_RISE": 5.0, "odd_bars": 1.5},
+              "flags": {"samba_toms": True, "snare_strokes": True}},
     "progressive": {"name": "Progressive", "text": "Odd meters and tempo changes expected: odd bars cheaper, real "
                     "tempo steps kept, tempos up to 240. Tick Rock or Fusion too for how it sounds.",
                     "tune": {"odd_bars": 0.6, "tempo.REPEAT_DISCOUNT": 0.85, "tempo.CHANGE_COST": 1.0,

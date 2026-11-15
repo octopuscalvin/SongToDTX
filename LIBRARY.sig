@@ -4,16 +4,16 @@
    "LIBRARY": "44804414f85bef9588f60086587fd6e8871b39123c831ec129624f4d81a95fea",
    "VERSION": "a92b0248b8baacfaf54e8d59caaca7d5e6b9a0a25ee140c81ea973b4ae25142f",
    "add_mv.py": "b8749af151b47afa05212de1244068c864431324f1a44d793cab654180bc9634",
-   "app/index.html": "bccf43cac6f77151f591328fcf055fbb991a4ed963efc1e5bc1648741e950012",
+   "app/index.html": "fe309ff633f8ce936ed42c7c73441dc1764c89ee790ac25c2a09802cfaa192c4",
    "app/server.py": "9a04d607c5c7c475477d09208398c378980433ba726fb1da418146e649266f11",
    "archive.py": "cdb7cc7b31f236b45274270c036106fd0fd5f1c9b8cd09c173f9c85757782ce9",
-   "autochart.py": "4cbf8e33e4a5a20f64ae09ddbb3cd1f46b98a7b00762d09a33332a93cab5a6c3",
+   "autochart.py": "e5f745794b5c4c20811c7085705f40eac67f66a523408120df1262c717df8680",
    "batch_albums.py": "2b47af82fc5e1928795882e03205ce2f449c139fe17b21df15b76ed4ea8f1760",
    "config.py": "9fb5a540929d92b937fec367e0a174870915870508cc4d071b117d13bf07f200",
    "download_parts.py": "d273e98acaafc93dbfe2dfc9170f457063f8d750ccc0ee9143d864ca252ccbbe",
    "drumkit.py": "83b557a84d73df7258d158a2f8b13edc008a9df319159a4856a4c2a9f3a91931",
    "dtx.py": "ba35275a8a6b5452e6a635ed0904e1ef08f6c7552dbf6a2452cc7a497ec3c031",
-   "genres.py": "eacd4bc852e70259dfad03adbb1d44cc1fea11bc2082e8325529eeea85c14688",
+   "genres.py": "c493bbb419ce21a04f352228d74d9dd2a5dfddbc5de5f65b9ca17c6a0e8ea5fc",
    "library_check.py": "56cf14dd559f0d1c3659a4208caf4b845721abe82a66607413c5898a0d4a6018",
    "live_mv.py": "ca785d02d720c878831612e59c19aa303e45ed06c7d54b04e36e73d1faabfb5c",
    "make_kit.py": "302e0d01952547272d2225f1ae317cfb4098877d53e428d94c87c150c6fbb38b",
@@ -27,5 +27,5 @@
   "library": "1.2",
   "version": "0.8.5"
  },
- "signature": "a2Kgar9isbwX7T0HPHwA1x7MSDL3GqGEreJVyo9ChVDR22SEafoUtrllPAzDC3fDqV0knvJGlfNOb9m4pUtXjd+zkwA0u3UjCV4JzFyz3sHa4GoplaIT966vucjc0EUx6CEiNBHRafY1kUP+LiRQc5WwI/h546Vxu+BVHHDmbGdzF1Jcj5aiqEahJk47KEuas55I3oSBSrDsZubPTGPHjqJr+hcdo13R1/7R5JT0cG2+JnvOKAInoeYwKsiL/Yi/b/ajgQrign7IygAwldjnT63Da5kJD+CUU7l8MNxmxM9iynOWXxPWQGD4abheXB3SD4GFyk26WrsGpcNgjG0ODA=="
+ "signature": "dmg1kR7MLdhI0pZTOndLP+v2Sl1KMjIT3Yr6V1+q4CG+C0lz7un76M8uqxiWgeDx/fsnAiBIrGjmdQ6HSI/2t3+uSotLOd7iXb8HzqykyKsh8UYAped8ZrgHxdlgLmYi1b4K2wg1VlMQvPBl73BXQCHD+zjU4YqbK0E0d+sScnRUxP5bTpnr/oAQlzkhmwxuDEp/eSSnzwO9ogw41grIq9rb3Z127rb+ztJyN4H0jV8XCEvoZBMqXtc+mvb175wIc1BwESlD0S6sdSE1CP6p54C1Rd/M4LXL8yC7nojpbgdtG0cXsVb3EtnLVH4ZdN0cD4/kV1AptLP7tgEbj1sl1w=="
 }

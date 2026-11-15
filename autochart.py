@@ -711,6 +711,73 @@ def double_kick(notes: list[Note], bar_starts: list[int], bpms: np.ndarray) -> l
     return notes
 
 
+SAMBA_TOM_LEVEL = -8.0      # dB vs the tom stem's loud hits (95th pct of the song): a played tom
+SAMBA_TOM_OVER_KICK = 10.0  # dB: the tom stem this much over the kick stem (both vs their loud hits), not kick bleed
+SAMBA_TOM_RISE = 6.0        # dB: the tom stem's attack over the 50 ms before
+SAMBA_HAT_KEEP = -6.0       # dB vs the hat stem's loud hits: a hat this loud stays beside the tom
+
+
+def samba_toms(notes: list[Note], drums: Path, T: np.ndarray, bar_starts: list[int],
+               log: list[str]) -> list[Note]:
+    """Samba (surdo / tom grooves): the transcriber hears the low toms as kicks or hi-hats or
+    misses them. On every 16th of the grid where the LarsNet tom stem hits clearly and the kick
+    stem does not explain it, write a tom. A kick there with a silent kick stem becomes the tom; a
+    soft hi-hat there gives way to it. Lanes by ring pitch (rank across the song's samba toms)."""
+    import librosa
+    sr = 22050
+    parts = drum_parts(drums)
+    Y = {k: librosa.load(str(parts[k]), sr=sr, mono=True)[0] for k in ("toms", "kick", "hihat")}
+
+    def db(y, t, a=0.0, b=0.06):
+        s = y[max(int((t + a) * sr), 0):max(int((t + b) * sr), 1)]
+        return float(20 * np.log10(np.sqrt(np.mean(s ** 2)) + 1e-9)) if len(s) else -200.0
+    span = np.arange(T[0], T[-1], 0.1)
+    ref = {k: np.percentile([db(y, t) for t in span], 95) for k, y in Y.items()}
+    by_q: dict[Fraction, list[Note]] = {}
+    for n in notes:
+        by_q.setdefault(n.q, []).append(n)
+    found: list[tuple[Fraction, float, float]] = []   # q, time, ring pitch
+    f = np.fft.rfftfreq(16384, 1 / sr)
+    band = (f >= 40) & (f <= 400)
+    for q in range(int(bar_starts[0]), min(int(bar_starts[-1]), len(T) - 1)):
+        g = by_q.get(Fraction(q), [])
+        if {"14", "15", "17"} & {n.ch for n in g}:
+            continue
+        t = min([n.t for n in g], default=float(T[q]))
+        to = db(Y["toms"], t) - ref["toms"]
+        if (to < SAMBA_TOM_LEVEL or to - (db(Y["kick"], t) - ref["kick"]) < SAMBA_TOM_OVER_KICK
+                or db(Y["toms"], t, 0, 0.04) - db(Y["toms"], t, -0.05, -0.01) < SAMBA_TOM_RISE):
+            continue
+        s = Y["toms"][int((t + 0.02) * sr):int((t + 0.14) * sr)]
+        if len(s) < 512:
+            continue
+        sp = np.abs(np.fft.rfft(s * np.hanning(len(s)), 16384))
+        found.append((Fraction(q), t, float(f[band][np.argmax(sp[band])])))
+    if not found:
+        return notes
+    logp = np.log2([p for _, _, p in found])
+    lo, hi = np.percentile(logp, [33, 67])
+    moved = dropped = 0
+    for q, t, p in found:
+        x = np.log2(p)
+        lane = "17" if x <= lo or hi - lo < 0.2 and p < 100 else "15" if x <= hi else "14"
+        keep = []
+        for n in by_q.get(q, []):
+            if n.ch == "13" and db(Y["kick"], t) - ref["kick"] < -20:
+                moved += 1
+                continue
+            if n.ch in ("11", "18") and db(Y["hihat"], t) - ref["hihat"] < SAMBA_HAT_KEEP:
+                dropped += 1
+                continue
+            keep.append(n)
+        by_q[q] = keep + [Note(q, lane, t)]
+    print(f"      samba toms: {len(found)} toms from the tom stem ({moved} were kicks, {dropped} soft hi-hats gave way)")
+    bs = np.array(bar_starts)
+    ms = sorted({int(np.searchsorted(bs, q, side="right")) for q, _, _ in found})
+    log.append(f"samba toms added from the tom stem in measures {', '.join(f'{m:03d}' for m in ms)} - check they are toms")
+    return sorted((n for g in by_q.values() for n in g), key=lambda n: (n.q, n.ch))
+
+
 def refine_toms(notes: list[Note], drums: Path) -> list[Note]:
     """ADTOF has one tom class. Split by pitch: high -> HT(14), mid -> LT(15), low -> FT(17)."""
     import librosa
@@ -1921,13 +1988,15 @@ def review(T: np.ndarray, bpms: np.ndarray, starts: list[int], hits: list[tuple[
 
 
 def audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_check, ride_foot, groove, swing,
-                static_cymbals=False):
+                static_cymbals=False, samba=False):
     """The audio pipeline's notes: transcription hits on the grid, then the per-song hint rules
     and the playability rules (score mode skips all of this). Returns the notes and the tom log."""
     notes = spread_flat_fills(refine_toms(refine_cymbals(quantize(hits, T, starts), drums if static_cymbals else None), drums), drums)
     n_toms = sum(n.ch in ("14", "15", "17") for n in notes)
     tom_log: list[str] = []
     notes = find_tom_fills(notes, drums, starts, tom_log)
+    if samba:
+        notes = samba_toms(notes, drums, T, starts, tom_log)
     print(f"tom fills: {sum(n.ch in ('14', '15', '17') for n in notes) - n_toms} hits moved to toms")
     if backbeat:
         notes = backbeat_only(notes, starts, parse_measures(backbeat))
@@ -2142,7 +2211,7 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
         notes, tom_log = close_open_hats(left_foot_busy(double_kick(score_notes(score, T, starts, score_first), starts, bpms))), []
     else:
         notes, tom_log = audio_notes(hits, T, starts, bpms, drums, backbeat, snare24, crash, kick_check,
-                                     ride_foot, groove, swing, static_cym)
+                                     ride_foot, groove, swing, static_cym, g.get("samba_toms", False))
     if ghosts:
         g = np.array(ghosts)
         soft = [n for n in notes if n.ch == "12" and np.min(np.abs(g - n.t)) < 0.002]
