@@ -48,6 +48,16 @@ details{margin-top:10px}summary{cursor:pointer;color:var(--muted);font-size:12px
 pre{background:var(--field);border:1px solid var(--line);border-radius:var(--r);padding:10px;max-height:220px;overflow:auto;font:12px/1.45 Consolas,monospace;white-space:pre-wrap;margin:8px 0 0}
 .hint{color:var(--muted);font-size:12px}
 #shapeCv{display:block;width:100%;margin:8px 0 4px;border:1px solid var(--line);border-radius:var(--r);background:var(--field);cursor:crosshair;touch-action:none}
+.yb{width:100%;border-collapse:collapse;font-size:13px}
+.yb th{text-align:left;color:var(--muted);font-weight:400;font-size:12px;padding:4px 6px;border-bottom:1px solid var(--line)}
+.yb td{padding:6px;border-bottom:1px solid var(--line);vertical-align:top}
+.yb td input[type=text]{width:100%;padding:4px 7px;font-size:13px}
+.yb img{width:64px;height:36px;object-fit:cover;border-radius:4px;display:block}
+.yb .badge{display:inline-block;font-size:11px;padding:0 6px;border-radius:9px;background:var(--field);border:1px solid var(--line);margin:0 4px 2px 0}
+.yb .badge.high{color:var(--ok);border-color:var(--ok)}.yb .badge.medium{color:var(--warn);border-color:var(--warn)}.yb .badge.low{color:var(--bad);border-color:var(--bad)}
+.yb .warn{color:var(--warn);font-size:12px;margin-top:2px}
+.yb tr.saved td{opacity:.6}
+.yb tr.cur{outline:1.5px solid var(--accent);outline-offset:-1.5px}
 .mvbox{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .err{color:var(--bad);font-size:13px;margin-top:8px}
 .okmsg{color:var(--ok);font-size:13px;margin-top:8px;word-break:break-all}
@@ -148,6 +158,7 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
     <div class="tabs">
       <button class="tab on" data-p="file">Song file</button>
       <button class="tab" data-p="youtube">YouTube (beta)</button>
+      <button class="tab" data-p="ytbatch">YouTube Batch</button>
       <button class="tab" data-p="score">Score video (beta)</button>
       <button class="tab" data-p="batch">Batch folders</button>
       <button class="tab" data-p="open">Existing chart</button>
@@ -174,6 +185,14 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
         <div class="row"><button class="btn" id="mvGo">Add MV to chart</button><span class="hint" id="mvStage"></span></div>
         <div class="err" id="mvErr"></div><div class="okmsg" id="mvOk"></div>
       </div>
+    </div>
+    <div class="pane" id="p-ytbatch">
+      <label>YouTube links, one per line (other text on the line is ignored)</label>
+      <textarea id="ybLinks" rows="6" placeholder="https://youtu.be/...&#10;https://www.youtube.com/watch?v=..."></textarea>
+      <div class="check"><input type="checkbox" id="ybBga" checked><span>Use the videos as BGA (plays with the music)</span></div>
+      <p class="hint">Generate makes every chart one after another with the genre and level you picked. The song name and
+        artist are read from each video's title, description and channel (a cover keeps the singers in the video as the artist).
+        Then check each one in the list below: Open plays it in the editor, fix the names, tick it, and output the ticked ones.</p>
     </div>
     <div class="pane" id="p-score">
       <label>Drum-score video (cover with a scrolling score)</label><input type="text" id="scChart" placeholder="https://www.youtube.com/watch?v=...">
@@ -212,6 +231,17 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
     <details><summary>Show log</summary><pre id="log"></pre></details>
   </section>
 </div>
+
+<section class="card" id="ybCard" hidden>
+  <div class="spread"><h2 style="margin:0"><span class="num">&#x2630;</span>YouTube Batch: check names, then output</h2>
+    <div class="row"><span class="hint" id="ybSum"></span><button class="btn sm" id="ybClear">Clear list</button></div></div>
+  <div style="overflow-x:auto;margin-top:10px"><table class="yb"><thead><tr><th></th><th></th><th style="width:22%">Song name</th>
+    <th style="width:18%">Artist</th><th style="width:16%">Info (comment)</th><th>Video and notes</th><th>Chart</th><th>OK</th></tr></thead>
+    <tbody id="ybRows"></tbody></table></div>
+  <div class="row" style="margin-top:10px;justify-content:flex-end"><label class="check" style="margin:0"><input type="checkbox" id="ybAll"><span>tick all finished</span></label>
+    <button class="btn primary" id="ybSave">Output ticked charts</button></div>
+  <div class="err" id="ybErr"></div><div class="okmsg" id="ybOk"></div>
+</section>
 
 <section class="card" id="editCard">
   <div id="busy" hidden><img id="busyImg" alt="" hidden><div class="beat" id="busyBeat"><i></i><i></i><i></i><i></i><i></i></div>
@@ -437,6 +467,7 @@ $('opGo').onclick = async () => {
 };
 $('go').onclick = async () => {
   if (mode === 'open') return $('opGo').onclick();
+  if (mode === 'ytbatch') return ybStart();
   $('srcErr').textContent = $('genErr').textContent = '';
   if (!confirmLoseEdits()) return;
   clearAuto();
@@ -515,6 +546,141 @@ $('mvGo').onclick = async () => {
     if (warn.length) $('mvErr').textContent = warn.join(' ');
   }, 1000);
 };
+/* ---------- YouTube Batch: every link charted in turn, names checked and output afterwards ---------- */
+let YB = [];                                   // [{id, url, title, artist, comment, touched, ok, saved, st}]
+const ybKey = 'songtodtx.ytbatch';
+let ybSent = '';
+function ybStore() {                           // kept by the server (any page sees it), and in this browser
+  const txt = JSON.stringify(YB.map(r => ({...r, st: undefined})));
+  try { localStorage.setItem(ybKey, txt); } catch (e) {}
+  if (txt !== ybSent) { ybSent = txt; fetch('/api/ytbatch', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: txt}).catch(() => {}); }
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+function ybLinks() {
+  const seen = new Set(), out = [];
+  for (const m of $('ybLinks').value.matchAll(/https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?\S*?v=|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/g))
+    if (!seen.has(m[1])) { seen.add(m[1]); out.push('https://www.youtube.com/watch?v=' + m[1]); }
+  return out;
+}
+async function ybStart() {
+  $('srcErr').textContent = $('genErr').textContent = '';
+  const urls = ybLinks();
+  if (!urls.length) { $('srcErr').textContent = 'Paste at least one YouTube link.'; return; }
+  if (needGenre()) return;
+  const base = {mode: 'youtube', bga: $('ybBga').checked, genre: genres(), level: +$('fLevel').value || 680};
+  for (const url of urls) {
+    try { const id = (await api('/api/start', {...base, url})).id; YB.push({id, url, title: '', artist: '', comment: '', touched: {}, ok: false}); }
+    catch (e) { $('genErr').textContent = url + ': ' + e.message; }
+  }
+  $('ybLinks').value = ''; ybStore(); ybRender(); ybPoll();
+  $('stage').textContent = `${urls.length} videos queued. They are charted one after another; the list below fills in as they go.`;
+  $('ybCard').scrollIntoView({behavior: 'smooth'});
+}
+function ybRow(r, k) {
+  const st = r.st || {}, g = st.songinfo || {}, done = st.state === 'done', fail = st.state === 'failed';
+  const thumb = st.info && st.info.jacket ? `<img alt="" src="${fileUrl(st.info.jacket)}">` : '';
+  const status = r.saved ? 'Saved' : fail ? `<span style="color:var(--bad)">Failed</span><div class="hint">${esc((st.error || '').slice(0, 90))}</div>`
+    : done ? `Ready<div class="hint">${st.info.bars} bars, ${st.info.notes} notes</div>`
+    : st.state === 'running' ? `Step ${st.step || 1} of 5` : esc(st.stage || 'queued');
+  const notes = (g.kind ? `<span class="badge">${esc(g.kind)}</span>` : '') +
+    (g.confidence ? `<span class="badge ${g.confidence}" title="${esc((g.why || []).join('; '))}">names: ${g.confidence}</span>` : '') +
+    `<div class="hint" title="${esc(r.url)}">${esc(g.video_title || r.url)}</div>` +
+    (g.warnings || []).map(w => `<div class="warn">${esc(w)}</div>`).join('') +
+    (g.mv_url && !r.saved ? `<button class="btn sm" data-mv="${k}" style="margin-top:4px">Chart the MV instead</button>` : '');
+  return `<tr data-k="${k}" class="${r.saved ? 'saved' : ''}${job === r.id ? ' cur' : ''}"><td>${k + 1}</td><td>${thumb}</td>
+    <td><input type="text" data-f="title" value="${esc(r.title)}"></td><td><input type="text" data-f="artist" value="${esc(r.artist)}"></td>
+    <td><input type="text" data-f="comment" value="${esc(r.comment)}"></td><td>${notes}</td>
+    <td style="white-space:nowrap">${status}${done ? `<div><button class="btn sm" data-open="${k}">Open</button></div>` : ''}</td>
+    <td><input type="checkbox" data-ok="${k}" ${r.ok ? 'checked' : ''} ${done && !r.saved ? '' : 'disabled'}></td></tr>`;
+}
+function ybRender() {
+  $('ybCard').hidden = !YB.length;
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('#ybRows') && a.type === 'text') return ybSummary();   // typing: keep the field
+  $('ybRows').innerHTML = YB.map(ybRow).join('');
+  ybSummary();
+}
+function ybSummary() {
+  const n = s => YB.filter(r => r.st && r.st.state === s).length;
+  $('ybSum').textContent = `${YB.length} videos · ${n('done')} ready · ${n('failed')} failed · ${YB.filter(r => r.saved).length} saved`;
+}
+$('ybRows').addEventListener('input', e => {
+  const tr = e.target.closest('tr'), f = e.target.dataset.f; if (!tr || !f) return;
+  const r = YB[+tr.dataset.k]; r[f] = e.target.value; r.touched[f] = true; ybStore();
+});
+$('ybRows').addEventListener('focusout', () => setTimeout(ybRender, 0));
+$('ybRows').addEventListener('change', e => {
+  if (e.target.dataset.ok !== undefined) { YB[+e.target.dataset.ok].ok = e.target.checked; ybStore(); }
+});
+$('ybRows').addEventListener('click', async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.open !== undefined) {                 // play and edit it in step 3, names in step 4
+    const r = YB[+b.dataset.open]; if (!confirmLoseEdits()) return;
+    ['fTitle', 'fArtist', 'fComment', 'fPrev'].forEach(k => $(k).value = ''); jacketPath = ''; auto.clear();
+    $('fTitle').value = r.title; $('fArtist').value = r.artist; $('fComment').value = r.comment;
+    start(r.id); ybRender(); $('editCard').scrollIntoView({behavior: 'smooth'});
+  }
+  if (b.dataset.mv !== undefined) {                   // the MV linked in a live video's description, instead of the live take
+    const r = YB[+b.dataset.mv], g = r.st.songinfo;
+    if (!confirm(`Chart ${g.mv_url} (the MV) instead of this video? The names stay as they are.`)) return;
+    api('/api/cancel', {id: r.id}).catch(() => {});
+    try {
+      const id = (await api('/api/start', {mode: 'youtube', url: g.mv_url, bga: $('ybBga').checked,
+        genre: genres().length ? genres() : (r.st.genre || 'auto'), level: +$('fLevel').value || 680,
+        title: r.title, artist: r.artist, comment: r.comment.replace(/(^|\s*\/\s*)Live$/, '')})).id;
+      r.comment = r.comment.replace(/(^|\s*\/\s*)Live$/, '');
+      Object.assign(r, {id, url: g.mv_url, st: null, ok: false}); ybStore(); ybRender(); ybPoll();
+    } catch (err) { $('ybErr').textContent = err.message; }
+  }
+});
+$('ybAll').onchange = () => { YB.forEach(r => { if (r.st && r.st.state === 'done' && !r.saved) r.ok = $('ybAll').checked; }); ybStore(); ybRender(); };
+$('ybClear').onclick = () => {
+  const busy = YB.filter(r => !r.st || ['queued', 'running'].includes(r.st.state)).length;
+  if (!confirm(busy ? `${busy} videos are still being charted; they keep going but leave the list. Clear the list?` : 'Clear the list? Saved charts stay in DTXFiles.')) return;
+  YB = []; ybStore(); ybRender();
+};
+$('ybSave').onclick = async () => {
+  $('ybErr').textContent = $('ybOk').textContent = '';
+  const todo = YB.filter(r => r.ok && !r.saved && r.st && r.st.state === 'done');
+  if (!todo.length) { $('ybErr').textContent = 'Tick the charts whose names are right first.'; return; }
+  const empty = todo.find(r => !r.title.trim());
+  if (empty) { $('ybErr').textContent = `Video ${YB.indexOf(empty) + 1} has no song name.`; return; }
+  const done = [];
+  for (const r of todo) {
+    try {
+      const res = await api('/api/save', {id: r.id, title: r.title.trim(), artist: r.artist.trim(), comment: r.comment.trim(),
+                                          level: +$('fLevel').value || 680});
+      r.saved = res.saved; r.ok = false; done.push(res.saved.split(/[\\/]/).pop());
+    } catch (e) { $('ybErr').textContent += `${r.title}: ${e.message} `; }
+  }
+  ybStore(); ybRender();
+  if (done.length) $('ybOk').textContent = `Saved ${done.length} into DTXFiles\\AutoChart: ${done.join(', ')}`;
+};
+let ybTimer = null;
+function ybPoll() {
+  clearInterval(ybTimer);
+  const tick = async () => {
+    let busy = false;
+    for (const r of YB) {
+      if (r.st && ['done', 'failed'].includes(r.st.state)) continue;
+      try { r.st = await api('/api/job/' + r.id); } catch (e) { r.st = {state: 'failed', error: 'job not found (the server restarted before it finished)'}; }
+      const g = r.st.songinfo;                       // names from the video, unless typed over already
+      if (!r.touched.title && (r.st.title || (g && g.title))) r.title = r.st.title || g.title;
+      if (!r.touched.artist && (r.st.artist || (g && g.artist))) r.artist = r.st.artist || g.artist;
+      if (!r.touched.comment && r.st.comment) r.comment = r.st.comment;
+      if (!['done', 'failed'].includes(r.st.state)) busy = true;
+    }
+    ybStore(); ybRender();
+    if (!busy) clearInterval(ybTimer);
+  };
+  tick(); ybTimer = setInterval(tick, 2000);
+}
+fetch('/api/ytbatch').then(r => r.json()).catch(() => []).then(list => {
+  let local = []; try { local = JSON.parse(localStorage.getItem(ybKey) || '[]'); } catch (e) {}
+  YB = list.length ? list : local;
+  if (YB.length) { ybStore(); ybRender(); ybPoll(); }
+});
+
 const confirmLoseEdits = () => !E.dirty || confirm('Your unsaved note edits will be lost. Continue?');
 
 function start(id) {

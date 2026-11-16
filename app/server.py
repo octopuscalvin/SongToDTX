@@ -4,7 +4,7 @@ child processes, one job at a time (they share the GPU).
 
   .venv/Scripts/python app/server.py [--port 8680]      then open http://127.0.0.1:8680
 
-Flow: 1 source (song file / YouTube / score video / batch folder) -> 2 generate -> 3 check the
+Flow: 1 source (song file / YouTube / YouTube batch / score video / batch folder) -> 2 generate -> 3 check the
 flagged measures, rebuild with hints -> 4 song info -> 5 save into DTXFiles/AutoChart/<title> (auto vN)."""
 import argparse, json, re, shutil, subprocess, sys, threading, time, uuid, webbrowser
 from fractions import Fraction
@@ -23,6 +23,7 @@ import add_mv                                      # noqa: E402
 import archive                                     # noqa: E402
 import genres                                      # noqa: E402
 import library_check                               # noqa: E402
+import songinfo                                    # noqa: E402
 from drumkit import KIT                            # noqa: E402
 
 VERSION = (HERE / "VERSION").read_text().strip()
@@ -37,12 +38,43 @@ LOADING = {".gif": "image/gif", ".webp": "image/webp", ".png": "image/png", ".sv
 safe = lambda s: re.sub(r'[\\/:*?"<>|]', "_", s).strip(" .") or "untitled"
 JOBS: dict[str, dict] = {}
 CRLF = chr(13) + chr(10)
+YT_BATCH = WORK / "ytbatch.json"   # the YouTube Batch list (names typed, ticks, saved), for any page that opens
 AUTO = "mstr.dtx.auto"    # the tool's own chart, kept once when notes are edited (not .dtx: DTXMania would list it)
-GPU = threading.Lock()
+
+
+class GpuQueue:
+    """The GPU, used in the order the jobs were started (a batch charts its songs in list order):
+    a job takes a ticket when it starts and waits for its turn."""
+    def __init__(self):
+        self.c, self.next, self.serving = threading.Condition(), 0, 0
+
+    def ticket(self) -> int:
+        with self.c:
+            self.next += 1
+            return self.next - 1
+
+    def turn(self, me: int):
+        q = self
+
+        class Turn:
+            def __enter__(self):
+                with q.c:
+                    q.c.wait_for(lambda: q.serving == me)
+
+            def __exit__(self, *a):
+                with q.c:
+                    q.serving += 1
+                    q.c.notify_all()
+        return Turn()
+
+
+GPU = GpuQueue()
 
 
 # ---- jobs ---------------------------------------------------------------------------------------
 def run(job: dict, cmd: list, cwd: Path = HERE) -> int:
+    if job.get("cancelled"):
+        raise RuntimeError("cancelled")
     job["log"].append("> " + " ".join(str(c) for c in cmd[1:3]) + " ...")
     p = subprocess.Popen([str(c) for c in cmd], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          text=True, encoding="utf-8", errors="replace",
@@ -89,10 +121,35 @@ def yt(url: str, out: Path, fmt: str, *extra) -> Path:
     return out
 
 
+def read_song_info(job: dict):
+    """A YouTube job's song name and artist from the video's title, description and channel
+    (songinfo.py), read before the job waits for the GPU so a batch list shows them at once."""
+    o = job["opts"]
+    try:
+        g = songinfo.guess(songinfo.read(o["url"], PY))
+    except Exception as e:                                 # no facts: the old title / uploader read below
+        job["log"].append(f"song info: could not read the video's facts ({e})")
+        return
+    o["songinfo"] = g
+    o["title"] = o.get("title") or g["title"]
+    o["artist"] = o.get("artist") or g["artist"]
+    o["comment"] = o.get("comment") or g["comment"]
+    job["log"].append(f"song info: {g['title']} / {g['artist']} ({g['kind']}, {g['confidence']}) from \"{g['video_title']}\"")
+    job["log"] += [f"song info: {x}" for x in g["warnings"]]
+
+
 def job_thread(job: dict):
     o, w = job["opts"], job["work"]
     try:
-        with GPU:
+        if o["mode"] == "youtube" and "songinfo" not in o:
+            job["stage"] = "reading the song name"
+            read_song_info(job)
+            job["stage"] = "waiting for the GPU"
+        with GPU.turn(job["ticket"]):
+            job["had_turn"] = True
+            if job.get("cancelled"):                  # cancelled while it waited (a batch row replaced)
+                job["state"], job["error"] = "failed", "cancelled"
+                return
             job["state"], job["started"] = "running", time.time()
             mode = o["mode"]
             if mode == "batch":
@@ -193,6 +250,10 @@ def job_thread(job: dict):
     except Exception as e:                                                   # shown in the page
         job["state"], job["error"] = "failed", str(e)
         job["log"].append(f"ERROR: {e}")
+    finally:
+        if not job.get("had_turn"):                    # failed before its turn: the next job must not wait for it
+            with GPU.turn(job["ticket"]):
+                pass
 
 
 def start_job(opts: dict, rebuild_of: str | None = None) -> dict:
@@ -215,6 +276,7 @@ def start_job(opts: dict, rebuild_of: str | None = None) -> dict:
     work.mkdir(parents=True, exist_ok=True)
     job = {"id": jid, "opts": opts, "work": work, "out": work / f"chart_{jid}", "state": "queued", "step": 0,
            "stage": "waiting for the GPU", "log": [], "info": None, "error": None}
+    job["ticket"] = GPU.ticket()
     JOBS[jid] = job
     threading.Thread(target=job_thread, args=(job,), daemon=True).start()
     return job
@@ -567,7 +629,9 @@ class H(BaseHTTPRequestHandler):
             return self.send({k: j[k] for k in ("id", "state", "step", "stage", "info", "error")} |
                              {"log": j["log"][-400:], "title": j["opts"].get("title"), "out": str(j["out"]), "seconds": j.get("seconds"),
                               "mode": j["opts"].get("mode"), "work": str(j["work"]),
-                              "genre": j["opts"].get("genre") or chart_genre(j["out"])})
+                              "genre": j["opts"].get("genre") or chart_genre(j["out"]),
+                              "songinfo": j["opts"].get("songinfo"), "artist": j["opts"].get("artist"),
+                              "comment": j["opts"].get("comment"), "url": j["opts"].get("url")})
         if u.path.startswith("/api/chart/"):
             j = JOBS.get(u.path.rsplit("/", 1)[1])
             if not j or not (j["out"] / "mstr.dtx").exists():
@@ -598,6 +662,8 @@ class H(BaseHTTPRequestHandler):
             dirs = {f.parent for f in root.rglob("*.dtx") if "Old versions" not in f.parts} if root.is_dir() else set()
             dirs = sorted(dirs, key=lambda d: -d.stat().st_mtime)
             return self.send({"charts": [{"path": str(d), "name": str(d.relative_to(root))} for d in dirs]})
+        if u.path == "/api/ytbatch":
+            return self.send(YT_BATCH.read_bytes() if YT_BATCH.exists() else b"[]")
         if u.path == "/api/defaults":                 # last job too, so a reloaded page picks it up again
             return self.send({"dest_batch": str(DTXMANIA / "DTXFiles" / "AutoChart (batch)"), "level": 680,
                               "version": VERSION, "library": LIBRARY, "library_check": library_check.check(),
@@ -624,7 +690,13 @@ class H(BaseHTTPRequestHandler):
                 if len(songs) == 1:
                     return self.send({"path": str(songs[0]), "name": songs[0].name})
                 return self.send({"folder": str(folder), "songs": len(songs)})
-            data = json.loads(self.body() or b"{}")
+            raw = self.body()
+            if u.path == "/api/ytbatch":
+                json.loads(raw)                              # only a valid list is kept
+                YT_BATCH.parent.mkdir(parents=True, exist_ok=True)
+                YT_BATCH.write_bytes(raw)
+                return self.send({"ok": True})
+            data = json.loads(raw or b"{}")
             if u.path == "/api/start":
                 return self.send({"id": start_job(data)["id"]})
             if u.path == "/api/trim":                 # short version of the chart in the editor
@@ -678,6 +750,7 @@ class H(BaseHTTPRequestHandler):
                 subprocess.Popen(["explorer", str(Path(data["path"]))])
                 return self.send({"ok": True})
             if u.path == "/api/cancel":
+                JOBS[data["id"]]["cancelled"] = True
                 p = JOBS[data["id"]].get("proc")
                 if p and p.poll() is None:
                     p.kill()

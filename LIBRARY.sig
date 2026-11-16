@@ -4,8 +4,8 @@
    "LIBRARY": "44804414f85bef9588f60086587fd6e8871b39123c831ec129624f4d81a95fea",
    "VERSION": "a92b0248b8baacfaf54e8d59caaca7d5e6b9a0a25ee140c81ea973b4ae25142f",
    "add_mv.py": "b8749af151b47afa05212de1244068c864431324f1a44d793cab654180bc9634",
-   "app/index.html": "fe309ff633f8ce936ed42c7c73441dc1764c89ee790ac25c2a09802cfaa192c4",
-   "app/server.py": "9a04d607c5c7c475477d09208398c378980433ba726fb1da418146e649266f11",
+   "app/index.html": "920a065d76c94584503f176a52e21cf8fb6a52fdfcb901f84020aa8a735f5c79",
+   "app/server.py": "021c43ce763456a2deb2f22f4f10fa149f6707ec879698ba091d9377b9927e40",
    "archive.py": "cdb7cc7b31f236b45274270c036106fd0fd5f1c9b8cd09c173f9c85757782ce9",
    "autochart.py": "e5f745794b5c4c20811c7085705f40eac67f66a523408120df1262c717df8680",
    "batch_albums.py": "2b47af82fc5e1928795882e03205ce2f449c139fe17b21df15b76ed4ea8f1760",
@@ -19,6 +19,7 @@
    "make_kit.py": "302e0d01952547272d2225f1ae317cfb4098877d53e428d94c87c150c6fbb38b",
    "preview.py": "d0bcf9d899a23a897a7c8f50f3d1f6ca1e5897d8d81c4d758f0f757636d5b4d5",
    "requirements.txt": "e723329501bad8e4def48b12def2386b7c26ab915b89a43c1d5678abbdb2acaa",
+   "songinfo.py": "a424ab25b4bd65b08e0083721a8f8e9909627bda9e076ed1475f7dc4e37edb74",
    "sounds.py": "c2f57f0f25f3848ccacd07cb252fae63f4de2b0ede2b9cb52c8936f5f84d5469",
    "tempo.py": "2752bfa4a095c361a65d94481567f48d07c25f680ba2158e504958239c8634e9",
    "trim.py": "84a02cf586b9af84bb233f3556c1a9f1be8f9c424e8e8ecb6fbc11c2a62c0223",
@@ -27,5 +28,5 @@
   "library": "1.2",
   "version": "0.8.5"
  },
- "signature": "dmg1kR7MLdhI0pZTOndLP+v2Sl1KMjIT3Yr6V1+q4CG+C0lz7un76M8uqxiWgeDx/fsnAiBIrGjmdQ6HSI/2t3+uSotLOd7iXb8HzqykyKsh8UYAped8ZrgHxdlgLmYi1b4K2wg1VlMQvPBl73BXQCHD+zjU4YqbK0E0d+sScnRUxP5bTpnr/oAQlzkhmwxuDEp/eSSnzwO9ogw41grIq9rb3Z127rb+ztJyN4H0jV8XCEvoZBMqXtc+mvb175wIc1BwESlD0S6sdSE1CP6p54C1Rd/M4LXL8yC7nojpbgdtG0cXsVb3EtnLVH4ZdN0cD4/kV1AptLP7tgEbj1sl1w=="
+ "signature": "JsKoAGO3hxyNZ5cm5Uepb7sRdjo/CDOWBXaZVUpXFfx0AWRsZq7JxaTN2BrHfojySBpVYUv675akx+H/vFDmTYhzqjtSI7GN0nkvuXQttMU8P1Cq4NMKyyAOKww+YqG8oz7tzjPDnBepw2cAaXI7BtUe/yMrHQqNDAYWxS10O83ploytStrmycI0phSIujeOwFBVmyxgnxsgALsx5MXhdAbhTelgWvTaUNhiRzDUn52FgzJ0laEK2JYo9EXj4Fn7MfelWpFPblomJFNESwaWyRwM8x0S8u3ax5F1UKRiAaDje/vr5c1e5aBuIuei6Xzxot17XQeE4qjLtI8FiSzn1A=="
 }

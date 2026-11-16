@@ -2,6 +2,18 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
+## Unreleased
+
+- YouTube Batch tab: paste several YouTube links, Generate charts them one after another (genre and level
+  from step 2). A list shows each video with the song name, artist and info it read; Open plays one in the
+  editor, the names can be corrected, and "Output ticked charts" saves the ticked ones into AutoChart.
+- Song name and artist from a YouTube video (songinfo.py): read from the title (【MV】Artist「Song」,
+  『Song』/ Artist, Artist - Song (Official Video) ...), the description, the channel and YouTube Music
+  facts, with how sure it is. A cover keeps the singers in the video as the artist and puts the original
+  artist in the info line; live takes, documentaries and drum covers are flagged, and a live video whose
+  description links the MV offers to chart the MV instead. The single YouTube tab uses it too.
+- Jobs use the GPU in the order they were started; a cancelled job that is still waiting does not run.
+
 ## 0.8.5 (Library 1.2)
 
 - New genre Samba (Jazz, Latin & Ballad group, beside Fusion): surdo-style toms written from the tom drum
