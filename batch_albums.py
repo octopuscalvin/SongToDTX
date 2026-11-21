@@ -2,7 +2,7 @@
 box.def per level. Jacket: the album folder's picture (cover/folder/front first, else any picture,
 else Images\ or Scans\), else the art embedded in a song file, else none. Every song is decoded
 by ffmpeg first (malformed mp3 headers can fool libsndfile). Only top-level audio is
-used (some albums carry an mp3\ copy of the flacs). Title/artist from tags, else the file
+used (some albums carry an mp3\ copy of the flacs), or the audio in Disc 1\, Disc 2\ ... folders. Title/artist from tags, else the file
 name. A folder of song folders named "Title - Artist" (no audio at its top) is charted as one box,
 title and artist from each folder's name, jacket from a picture in it or the song's own art.
 Zip / 7z / rar archives are unpacked first. Finished albums inside an editing\ folder (or their
@@ -50,6 +50,14 @@ def art(f: Path, out: Path) -> Path | None:
     return out if out.exists() and out.stat().st_size > 1000 else None
 
 
+DISC = re.compile(r"(?i)^(disc|disk|cd)\s*\d+$")
+
+
+def disc_folders(album: Path) -> list[Path]:
+    """Disc 1\, Disc 2\ ... folders of one album."""
+    return sorted(d for d in album.iterdir() if d.is_dir() and DISC.match(d.name.strip()))
+
+
 def song_folders(album: Path) -> tuple[list[Path], dict]:
     """One song per sub-folder; "Title - Artist" folder names give title and artist."""
     songs, named = [], {}
@@ -63,9 +71,9 @@ def song_folders(album: Path) -> tuple[list[Path], dict]:
 
 
 def jacket(album: Path, songs: list[Path], info: dict) -> Path | None:
-    pics = [p for d in (album, album / "Images", album / "Scans") if d.is_dir()
+    pics = [p for d in (album, *disc_folders(album), album / "Images", album / "Scans") if d.is_dir()
             for p in sorted(d.iterdir()) if p.suffix.lower() in PICS]
-    pref = [p for p in pics if re.search(r"cover|folder|front", p.stem, re.I)]
+    pref = [p for p in pics if re.search(r"cover|folder", p.stem, re.I)] or            [p for p in pics if re.search(r"front", p.stem, re.I)]
     if pref or pics:
         return (pref or pics)[0]
     for f in songs:
@@ -80,6 +88,8 @@ albums = [Path(a) for a in sys.argv[2:]] or sorted(p for p in ED.iterdir() if p.
 for src in albums:
     album = archive.unpack(src, config.CACHE / "unpacked") if archive.is_archive(src) else src
     songs, named = sorted(p for p in album.iterdir() if p.suffix.lower() in AUDIO), {}
+    if not songs:   # an album split into disc folders
+        songs = [p for d in disc_folders(album) for p in sorted(d.iterdir()) if p.suffix.lower() in AUDIO]
     if not songs:
         songs, named = song_folders(album)
     if not songs:

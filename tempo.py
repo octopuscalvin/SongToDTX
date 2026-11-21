@@ -412,10 +412,32 @@ def drift_grid(Tw: np.ndarray, starts: list[int]) -> tuple[np.ndarray, np.ndarra
     return T, np.append(seg_bpm, seg_bpm[-1])
 
 
-def track_beats(beat: np.ndarray, hits: np.ndarray, fps: int = 50) -> np.ndarray:
+def follow_beats(start: float, end: float, hits: np.ndarray, period_at) -> np.ndarray:
+    """Beats from the drum hits alone: each next beat expected one period on, pulled toward the
+    nearest hit (within 15 % of a beat), the period following the drift but kept within 8 % of
+    the tempo map's."""
+    out, t, p = [start], start, period_at(start)
+    while t + p < end:
+        pred = t + p
+        ref = period_at(pred)
+        j = np.searchsorted(hits, pred)
+        near = [h for h in hits[max(j - 3, 0):j + 3] if abs(h - pred) < 0.15 * p]
+        if near:
+            err = min(near, key=lambda h: abs(h - pred)) - pred
+            t = pred + 0.6 * err
+            p = float(np.clip(p + 0.15 * err, 0.92 * ref, 1.08 * ref))
+        else:
+            t = pred
+        out.append(t)
+    return np.array(out)
+
+
+def track_beats(beat: np.ndarray, hits: np.ndarray, fps: int = 50, period_at=None) -> np.ndarray:
     """Beat times from the beat tracker, cleaned up: sub-frame peaks, missing beats filled and
     double beats dropped, aimed at the drum hits (rolling median offset) and smoothed with a
-    local line over 9 beats so one late hit doesn't bend the grid."""
+    local line over 9 beats so one late hit doesn't bend the grid. `period_at(t)`: the beat length of
+    the song's tempo map there; when the tracker mostly disagrees with it (half time, dotted
+    beats), the beats are followed from the drum hits at the tempo map's level instead."""
     from scipy.signal import find_peaks
     pk, _ = find_peaks(beat, height=0.3, distance=int(fps * 0.25))
     a, b, c = beat[pk - 1], beat[pk], beat[np.minimum(pk + 1, len(beat) - 1)]
@@ -435,6 +457,14 @@ def track_beats(beat: np.ndarray, hits: np.ndarray, fps: int = 50) -> np.ndarray
         t = np.sort(np.concatenate([t] + add))
     # the tracker sometimes counts half time for a stretch (e.g. ~82 in a
     # 163 BPM medley): keep one beat level, the song's usual one
+    if period_at is not None and len(t) > 8:
+        d = np.diff(t)
+        agree = float(np.mean(np.abs(d / np.array([period_at(x) for x in t[:-1]]) - 1) < 0.15))
+        if agree < 0.6:
+            # e.g. a drifting ~210 BPM metal song the tracker reads at ~110 and ~150 by turns
+            print(f"      beat tracker agrees with the tempo map on {agree:.0%} of beats -> beats followed "
+                  "from the drum hits")
+            t = follow_beats(t[0], t[-1] + 1.0, hits, period_at)
     d = np.diff(t)
     g = np.median(d)
     loc = np.array([np.median(d[max(i - 4, 0):i + 5]) for i in range(len(d))])

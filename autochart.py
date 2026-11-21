@@ -2119,7 +2119,10 @@ def build(audio: Path, out_dir: Path, title: str, artist: str, bgm_mode: str, in
         switches = [int(i) + 1 for i in np.flatnonzero(np.diff(bpms) != 0)]
         return tempo.choose_bars(T, sample_at(down_act, T), sample_at(beat_act, T),
                                  accent_at(hits, T), active=active, switches=switches)
-    beats = tempo.track_beats(beat_act, np.array(sorted(t for t, p in hits)))
+    def period_at(x):                        # the tempo map's beat length at a time
+        s = next((s for s in sections if s.start <= x < s.end), sections[-1] if x >= 0 else sections[0])
+        return 60.0 / s.bpm
+    beats = tempo.track_beats(beat_act, np.array(sorted(t for t, p in hits)), period_at=period_at)
 
     def near(pitch):
         h = np.array(sorted(t for t, p in hits if p == pitch))

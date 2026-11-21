@@ -157,9 +157,9 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
     <h2><span class="num">1</span>Source</h2>
     <div class="tabs">
       <button class="tab on" data-p="file">Song file</button>
-      <button class="tab" data-p="youtube">YouTube (beta)</button>
+      <button class="tab" data-p="youtube">YouTube</button>
       <button class="tab" data-p="ytbatch">YouTube Batch</button>
-      <button class="tab" data-p="score">Score video (beta)</button>
+      <button class="tab" data-p="score">Score video</button>
       <button class="tab" data-p="batch">Batch folders</button>
       <button class="tab" data-p="open">Existing chart</button>
     </div>
@@ -247,7 +247,8 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
   <div id="busy" hidden><img id="busyImg" alt="" hidden><div class="beat" id="busyBeat"><i></i><i></i><i></i><i></i><i></i></div>
     <div id="busyTxt">Making the chart ...</div></div>
   <div class="spread"><h2 style="margin:0"><span class="num">3</span>Check and edit the chart</h2>
-    <div class="row"><span class="hint" id="dirty"></span><button class="btn sm" id="revert" hidden>Back to the tool's chart</button><button class="btn sm" id="saveEdits" disabled>Save edits</button></div></div>
+    <div class="row"><label id="pickWrap" hidden style="display:flex;align-items:center;gap:6px;margin:0"><span class="hint">Batch song</span>
+      <select id="pickBatch" style="max-width:320px"></select></label><span class="hint" id="dirty"></span><button class="btn sm" id="revert" hidden>Back to the tool's chart</button><button class="btn sm" id="saveEdits" disabled>Save edits</button></div></div>
   <div class="edit" style="margin-top:12px">
     <div>
       <div class="tool">
@@ -308,7 +309,7 @@ kbd{font:11px Consolas,monospace;border:1px solid var(--line2);border-radius:4px
   </section>
   <section class="card">
     <h2><span class="num">5</span>Output</h2>
-    <p class="hint" style="margin:0 0 10px">Saves into DTXFiles\AutoChart\&lt;song&gt; (auto vN), with your edits. Older versions move to Old versions.</p>
+    <p class="hint" style="margin:0 0 10px">Saves into DTXFiles\AutoChart\&lt;song&gt;, with your edits. An older chart of the same song moves to Old versions.</p>
     <div id="dtxBox" hidden><label>DTXMania folder (the one with DTXFiles in it)</label>
       <div class="row" style="margin-bottom:10px"><input type="text" id="dtxDir" style="flex:1" placeholder="C:\Games\DTXMania"><button class="btn" id="dtxSet">Use this folder</button></div></div>
     <button class="btn primary" id="save" style="width:100%">Update info and output DTX file</button>
@@ -462,7 +463,7 @@ $('opGo').onclick = async () => {
   const path = $('opChart').value.trim();
   if (!path) { $('srcErr').textContent = 'Pick a chart folder first.'; return; }
   if (!confirmLoseEdits()) return;
-  jacketPath = ''; ['fTitle', 'fArtist', 'fComment', 'fPrev'].forEach(k => $(k).value = '');
+  jacketPath = ''; ['fTitle', 'fArtist', 'fComment', 'fPrev'].forEach(k => $(k).value = ''); PICK = ''; pickFill();
   try { start((await api('/api/load', {path})).id); } catch (e) { $('srcErr').textContent = e.message; }
 };
 $('go').onclick = async () => {
@@ -470,7 +471,7 @@ $('go').onclick = async () => {
   if (mode === 'ytbatch') return ybStart();
   $('srcErr').textContent = $('genErr').textContent = '';
   if (!confirmLoseEdits()) return;
-  clearAuto();
+  clearAuto(); PICK = ''; pickFill();
   let o; try { o = sourceOpts(); } catch (e) { $('srcErr').textContent = e; return; }
   if (needGenre()) return;
   if ($('hints').value.trim()) o.hints = $('hints').value.trim();
@@ -596,9 +597,9 @@ function ybRow(r, k) {
 function ybRender() {
   $('ybCard').hidden = !YB.length;
   const a = document.activeElement;
-  if (a && a.closest && a.closest('#ybRows') && a.type === 'text') return ybSummary();   // typing: keep the field
+  if (a && a.closest && a.closest('#ybRows') && a.type === 'text') { pickFill(); return ybSummary(); }   // typing: keep the field
   $('ybRows').innerHTML = YB.map(ybRow).join('');
-  ybSummary();
+  ybSummary(); pickFill();
 }
 function ybSummary() {
   const n = s => YB.filter(r => r.st && r.st.state === s).length;
@@ -615,10 +616,7 @@ $('ybRows').addEventListener('change', e => {
 $('ybRows').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.open !== undefined) {                 // play and edit it in step 3, names in step 4
-    const r = YB[+b.dataset.open]; if (!confirmLoseEdits()) return;
-    ['fTitle', 'fArtist', 'fComment', 'fPrev'].forEach(k => $(k).value = ''); jacketPath = ''; auto.clear();
-    $('fTitle').value = r.title; $('fArtist').value = r.artist; $('fComment').value = r.comment;
-    start(r.id); ybRender(); $('editCard').scrollIntoView({behavior: 'smooth'});
+    if (ybOpen(+b.dataset.open)) $('editCard').scrollIntoView({behavior: 'smooth'});
   }
   if (b.dataset.mv !== undefined) {                   // the MV linked in a live video's description, instead of the live take
     const r = YB[+b.dataset.mv], g = r.st.songinfo;
@@ -656,6 +654,47 @@ $('ybSave').onclick = async () => {
   ybStore(); ybRender();
   if (done.length) $('ybOk').textContent = `Saved ${done.length} into DTXFiles\\AutoChart: ${done.join(', ')}`;
 };
+function ybOpen(k) {                           // a batch row in step 3: a saved one is opened from its DTXFiles folder
+  const r = YB[k]; if (!r || !confirmLoseEdits()) return false;
+  ['fTitle', 'fArtist', 'fComment', 'fPrev'].forEach(k => $(k).value = ''); jacketPath = ''; auto.clear();
+  PICK = 'yb:' + k;
+  if (r.saved) api('/api/load', {path: r.saved}).then(x => { start(x.id); ybRender(); }).catch(e => { $('genErr').textContent = e.message; });
+  else { $('fTitle').value = r.title; $('fArtist').value = r.artist; $('fComment').value = r.comment; start(r.id); ybRender(); }
+  return true;
+}
+/* step 3 "Batch song": the songs a batch just finished (YouTube batch rows, or the charts an album batch wrote) */
+let BATCH = [], PICK = '';                     // BATCH: [{path, name}] from the last album batch
+function pickFill() {
+  const yb = YB.map((r, k) => [r, k]).filter(([r]) => r.saved || (r.st && r.st.state === 'done'))
+    .map(([r, k]) => `<option value="yb:${k}">${k + 1}. ${esc(r.title || r.url)}${r.saved ? ' (saved)' : ''}</option>`);
+  const al = BATCH.map((c, i) => `<option value="p:${i}">${esc(c.name)}</option>`);
+  $('pickWrap').hidden = !yb.length && !al.length;
+  if ($('pickWrap').hidden) return;
+  const sel = $('pickBatch');
+  const html = `<option value="">Pick a song ...</option>` +
+    (yb.length ? `<optgroup label="YouTube Batch">${yb.join('')}</optgroup>` : '') +
+    (al.length ? `<optgroup label="Album batch">${al.join('')}</optgroup>` : '');
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }   // an open list is not redrawn every poll
+  sel.value = [...sel.options].some(o => o.value === PICK) ? PICK : '';
+}
+$('pickBatch').onchange = async e => {
+  const v = e.target.value; if (!v) return;
+  if (v.startsWith('yb:')) { if (!ybOpen(+v.slice(3))) e.target.value = PICK; return; }
+  if (!confirmLoseEdits()) { e.target.value = PICK; return; }
+  PICK = v; jacketPath = ''; ['fTitle', 'fArtist', 'fComment', 'fPrev'].forEach(k => $(k).value = '');
+  try { start((await api('/api/load', {path: BATCH[+v.slice(2)].path})).id); } catch (err) { $('genErr').textContent = err.message; }
+};
+async function albumBatchDone(j) {               // the charts this album batch wrote into its folder
+  const dest = $('bDest').value.trim().replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase();
+  try {
+    const r = await api('/api/charts');
+    BATCH = r.charts.filter(c => c.path.toLowerCase().startsWith(dest + '\\') &&(!j.started || c.mtime >= j.started - 5))
+      .map(c => ({path: c.path, name: c.path.slice(dest.length + 1)})).sort((a, b) => a.name.localeCompare(b.name));
+  } catch (e) { BATCH = []; }
+  pickFill();
+  if (BATCH.length) $('stage').textContent += ` ${BATCH.length} charts: pick one under "Batch song" in step 3 to check it.`;
+  if (BATCH.length && !E.chart) { $('pickBatch').value = 'p:0'; $('pickBatch').onchange({target: $('pickBatch')}); }
+}
 let ybTimer = null;
 function ybPoll() {
   clearInterval(ybTimer);
@@ -671,7 +710,11 @@ function ybPoll() {
       if (!['done', 'failed'].includes(r.st.state)) busy = true;
     }
     ybStore(); ybRender();
-    if (!busy) clearInterval(ybTimer);
+    if (!busy) {
+      clearInterval(ybTimer);
+      const k = YB.findIndex(r => !r.saved && r.st && r.st.state === 'done');
+      if (k >= 0 && !E.chart && !job) ybOpen(k);       // nothing in step 3 yet: show the first finished song
+    }
   };
   tick(); ybTimer = setInterval(tick, 2000);
 }
@@ -701,7 +744,7 @@ async function poll() {
     clearInterval(timer); $('go').disabled = false; $('cancel').hidden = true;
     if (j.state === 'failed') $('genErr').textContent = j.error && j.error.startsWith('NO DRUMS') ? 'This song has almost no drums, so there is nothing to chart.' : (j.error || 'Something went wrong. Open the log to see where.');
     if (j.state === 'needs_score') $('stage').textContent = j.stage;
-    if (j.state === 'done' && j.mode === 'batch') $('stage').textContent = 'Batch finished. Charts are in ' + $('bDest').value;
+    if (j.state === 'done' && j.mode === 'batch') { $('stage').textContent = 'Batch finished. Charts are in ' + $('bDest').value + '.'; albumBatchDone(j); }
     if (j.info) { fill(j.info, j.out); loadChart(); setGenre(j.genre); }
     if (j.state === 'done' && j.seconds != null) $('stage').textContent += ` Took ${j.seconds >= 60 ? Math.floor(j.seconds / 60) + ' min ' : ''}${j.seconds % 60} s.`;
   }

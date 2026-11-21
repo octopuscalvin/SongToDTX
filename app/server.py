@@ -5,7 +5,7 @@ child processes, one job at a time (they share the GPU).
   .venv/Scripts/python app/server.py [--port 8680]      then open http://127.0.0.1:8680
 
 Flow: 1 source (song file / YouTube / YouTube batch / score video / batch folder) -> 2 generate -> 3 check the
-flagged measures, rebuild with hints -> 4 song info -> 5 save into DTXFiles/AutoChart/<title> (auto vN)."""
+flagged measures, rebuild with hints -> 4 song info -> 5 save into DTXFiles/AutoChart/<title>."""
 import argparse, json, re, shutil, subprocess, sys, threading, time, uuid, webbrowser
 from fractions import Fraction
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -446,21 +446,34 @@ def write_preview(job: dict, d: Path, f: dict) -> None:
 
 
 # ---- save ---------------------------------------------------------------------------------------
-def next_version(title: str) -> int:
-    pat = re.compile(re.escape(safe(title)) + r" \((?:auto|score) v(\d+)\)$")
-    found = [int(m[1]) for d in (DEST, DEST / "Old versions") if d.exists() for p in d.iterdir() if (m := pat.match(p.name))]
-    return max(found, default=0) + 1
+def free_name(parent: Path, name: str) -> Path:
+    """name, else "name (2)", "name (3)" ... whichever is not taken in parent."""
+    d, n = parent / name, 1
+    while d.exists():
+        n += 1
+        d = parent / f"{name} ({n})"
+    return d
 
 
 def save(job: dict, f: dict) -> dict:
-    """Copy the chart into DTXFiles/AutoChart/<title> (auto vN), rewrite the song info headers,
-    cut the preview sound, move older versions to Old versions (skipped while DTXMania has them open)."""
+    """Copy the chart into DTXFiles/AutoChart/<title>, rewrite the song info headers, cut the preview
+    sound. An older chart of the same song (also one named "<title> (auto vN)" by earlier versions)
+    moves to Old versions first; one DTXMania has open stays, and the new one gets "<title> (2)"."""
     if job["opts"].get("mode") == "existing":
         return save_in_place(job, f)
     title = f.get("title") or job["info"]["title"]
-    kind = "score" if job["opts"]["mode"] == "score" else "auto"
-    v = next_version(title)
-    dst = DEST / f"{safe(title)} ({kind} v{v})"
+    base, moved = safe(title), []
+    (DEST / "Old versions").mkdir(parents=True, exist_ok=True)
+    for d in sorted(DEST.iterdir()) if DEST.exists() else []:
+        if d.is_dir() and (d.name == base or re.fullmatch(re.escape(base) + r" \((auto|score) v\d+\)|" +
+                                                          re.escape(base) + r" \([2-9]\)", d.name)):
+            stamp = time.strftime("%Y-%m-%d %H%M", time.localtime(d.stat().st_mtime))
+            try:
+                shutil.move(str(d), str(free_name(DEST / "Old versions", d.name if d.name != base else f"{base} ({stamp})")))
+                moved.append(d.name)
+            except OSError:
+                pass
+    dst = free_name(DEST, base)
     shutil.copytree(job["out"], dst, ignore=shutil.ignore_patterns(AUTO, "job.json"))
     heads = {"TITLE": title, "ARTIST": f.get("artist", ""), "COMMENT": f.get("comment", ""),
              "DLEVEL": str(int(f.get("level") or 680))}
@@ -474,15 +487,6 @@ def save(job: dict, f: dict) -> dict:
         write_preview(job, dst, f)
         heads["PREVIEW"] = "preview.ogg"
     set_headers(dst / "mstr.dtx", heads, float(f["bpm_display"]) if f.get("bpm_display") else None)
-    moved = []
-    (DEST / "Old versions").mkdir(exist_ok=True)
-    for d in DEST.iterdir():
-        if d != dst and d.is_dir() and re.fullmatch(re.escape(safe(title)) + r" \((auto|score) v\d+\)", d.name):
-            try:
-                shutil.move(str(d), str(DEST / "Old versions" / d.name))
-                moved.append(d.name)
-            except OSError:
-                pass
     return {"saved": str(dst), "moved": moved}
 
 
@@ -631,7 +635,8 @@ class H(BaseHTTPRequestHandler):
                               "mode": j["opts"].get("mode"), "work": str(j["work"]),
                               "genre": j["opts"].get("genre") or chart_genre(j["out"]),
                               "songinfo": j["opts"].get("songinfo"), "artist": j["opts"].get("artist"),
-                              "comment": j["opts"].get("comment"), "url": j["opts"].get("url")})
+                              "comment": j["opts"].get("comment"), "url": j["opts"].get("url"),
+                              "started": j.get("started")})
         if u.path.startswith("/api/chart/"):
             j = JOBS.get(u.path.rsplit("/", 1)[1])
             if not j or not (j["out"] / "mstr.dtx").exists():
@@ -661,7 +666,8 @@ class H(BaseHTTPRequestHandler):
             root = DTXMANIA / "DTXFiles"
             dirs = {f.parent for f in root.rglob("*.dtx") if "Old versions" not in f.parts} if root.is_dir() else set()
             dirs = sorted(dirs, key=lambda d: -d.stat().st_mtime)
-            return self.send({"charts": [{"path": str(d), "name": str(d.relative_to(root))} for d in dirs]})
+            return self.send({"charts": [{"path": str(d), "name": str(d.relative_to(root)), "mtime": d.stat().st_mtime}
+                                         for d in dirs]})
         if u.path == "/api/ytbatch":
             return self.send(YT_BATCH.read_bytes() if YT_BATCH.exists() else b"[]")
         if u.path == "/api/defaults":                 # last job too, so a reloaded page picks it up again

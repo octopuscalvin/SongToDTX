@@ -2,8 +2,16 @@
 
 Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is announced.
 
-## Unreleased
+## 0.8.7 (Library 1.2)
 
+- The YouTube and Score video tabs are no longer marked beta.
+- Step 3 "Batch song" list: after a YouTube batch or an album batch, pick any of its songs to load the chart
+  and check it (a saved one opens from its DTXFiles folder, so edits go into it). With nothing in step 3, the
+  first finished song is shown.
+- Saved charts are named after the song only (no " (auto vN)" on the folder); an older chart of the same song
+  moves to Old versions, named with its date.
+- Album batch: an album split into Disc 1\, Disc 2\ ... folders is charted as one album (the folders were
+  taken as song folders), and its jacket is found in those folders too (cover / folder pictures first).
 - YouTube Batch tab: paste several YouTube links, Generate charts them one after another (genre and level
   from step 2). A list shows each video with the song name, artist and info it read; Open plays one in the
   editor, the names can be corrected, and "Output ticked charts" saves the ticked ones into AutoChart.
@@ -13,6 +21,9 @@ Versions go 0.7.0, 0.7.1 … 0.9.9, 0.10.0, 0.10.1 … — 1.0.0 only when it is
   artist in the info line; live takes, documentaries and drum covers are flagged, and a live video whose
   description links the MV offers to chart the MV instead. The single YouTube tab uses it too.
 - Jobs use the GPU in the order they were started; a cancelled job that is still waiting does not run.
+- Beat grid (`--beat-grid`): when the beat tracker mostly disagrees with the song's tempo map (a
+  drifting fast metal take read at half time in one part and dotted beats in another), the beats are
+  followed from the drum hits at the tempo map's level instead. Other songs are unchanged.
 
 ## 0.8.5 (Library 1.2)
 
